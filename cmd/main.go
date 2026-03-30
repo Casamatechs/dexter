@@ -18,7 +18,7 @@ func usage() {
 Usage:
   dexter init [--force] [path]    Full index of an Elixir project
   dexter reindex [file|path]      Re-index a single file or check all files for changes
-  dexter lookup <module> [func]   Look up where a module/function is defined
+  dexter lookup [--strict] <module> [func]   Look up where a module/function is defined
 Options:
   path defaults to the current directory
 `)
@@ -47,16 +47,25 @@ func main() {
 		target := getPath(2)
 		cmdReindex(target)
 	case "lookup":
-		if len(os.Args) < 3 {
+		strict := false
+		lookupArgs := []string{}
+		for _, arg := range os.Args[2:] {
+			if arg == "--strict" {
+				strict = true
+			} else {
+				lookupArgs = append(lookupArgs, arg)
+			}
+		}
+		if len(lookupArgs) < 1 {
 			usage()
 		}
-		module := os.Args[2]
+		module := lookupArgs[0]
 		function := ""
-		if len(os.Args) >= 4 {
-			function = os.Args[3]
+		if len(lookupArgs) >= 2 {
+			function = lookupArgs[1]
 		}
 		projectRoot, _ := os.Getwd()
-		cmdLookup(projectRoot, module, function)
+		cmdLookup(projectRoot, module, function, strict)
 	default:
 		usage()
 	}
@@ -272,7 +281,7 @@ func reindexFile(s *store.Store, path string) {
 	}
 }
 
-func cmdLookup(projectRoot string, module string, function string) {
+func cmdLookup(projectRoot string, module string, function string, strict bool) {
 	projectRoot = findProjectRoot(projectRoot)
 	s, err := store.Open(projectRoot)
 	if err != nil {
@@ -291,12 +300,18 @@ func cmdLookup(projectRoot string, module string, function string) {
 			}
 			return
 		}
+		if strict {
+			os.Exit(1)
+		}
 	}
 
 	// Fall back to module lookup (or if no function specified)
 	results, err := s.LookupModule(module)
 	if err != nil {
 		fatal(err)
+	}
+	if len(results) == 0 && strict {
+		os.Exit(1)
 	}
 	for _, r := range results {
 		fmt.Printf("%s:%d\n", r.FilePath, r.Line)
