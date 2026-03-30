@@ -1,0 +1,8 @@
+# Binary
+dexter
+
+# Database
+*.db
+
+# OS
+.DS_Store
