@@ -202,6 +202,44 @@ func TestExtractAliases(t *testing.T) {
 			t.Errorf("Repo: got %q", aliases["Repo"])
 		}
 	})
+
+	t.Run("resolves __MODULE__ using defmodule name", func(t *testing.T) {
+		text := "defmodule MyApp.HRIS do\n  alias __MODULE__.Schemas.UserRelationship\n  alias __MODULE__.Services\nend"
+		aliases := ExtractAliases(text)
+		if aliases["UserRelationship"] != "MyApp.HRIS.Schemas.UserRelationship" {
+			t.Errorf("UserRelationship: got %q, want MyApp.HRIS.Schemas.UserRelationship", aliases["UserRelationship"])
+		}
+		if aliases["Services"] != "MyApp.HRIS.Services" {
+			t.Errorf("Services: got %q, want MyApp.HRIS.Services", aliases["Services"])
+		}
+	})
+
+	t.Run("resolves __MODULE__ with as: alias", func(t *testing.T) {
+		text := "defmodule MyApp.MyPayProvider do\n  alias __MODULE__, as: MyPayProvider\nend"
+		aliases := ExtractAliases(text)
+		if aliases["MyPayProvider"] != "MyApp.MyPayProvider" {
+			t.Errorf("MyPayProvider: got %q, want MyApp.MyPayProvider", aliases["MyPayProvider"])
+		}
+	})
+
+	t.Run("partial __MODULE__ alias resolves in lookup", func(t *testing.T) {
+		// Simulates: alias __MODULE__.Services -> Services = MyApp.HRIS.Services
+		// Then a lookup for "Services.AssociateWithTeamV2" should resolve
+		// to "MyApp.HRIS.Services.AssociateWithTeamV2"
+		text := "defmodule MyApp.HRIS do\n  alias __MODULE__.Services\nend"
+		aliases := ExtractAliases(text)
+		// The LSP definition handler does this partial lookup:
+		moduleRef := "Services"
+		suffix := "AssociateWithTeamV2"
+		resolved, ok := aliases[moduleRef]
+		if !ok {
+			t.Fatal("Services alias not found")
+		}
+		full := resolved + "." + suffix
+		if full != "MyApp.HRIS.Services.AssociateWithTeamV2" {
+			t.Errorf("got %q, want MyApp.HRIS.Services.AssociateWithTeamV2", full)
+		}
+	})
 }
 
 func TestExtractImports(t *testing.T) {
@@ -348,4 +386,73 @@ func TestExtractModuleAndFunction_QuestionMarkBang(t *testing.T) {
 	if mod != "Foo" || fn != "process!" {
 		t.Errorf("got mod=%q fn=%q", mod, fn)
 	}
+}
+
+func TestExtractModuleAttribute(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		col      int
+		expected string
+	}{
+		{"cursor on attr name", "      tags: @open_api_shared_tags,", 18, "open_api_shared_tags"},
+		{"cursor on @", "      tags: @open_api_shared_tags,", 12, "open_api_shared_tags"},
+		{"cursor at end of attr", "      tags: @open_api_shared_tags,", 31, "open_api_shared_tags"},
+		{"not on attr", "      tags: :something,", 10, ""},
+		{"standalone attr", "  @endpoint_scopes %{", 4, "endpoint_scopes"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractModuleAttribute(tt.line, tt.col)
+			if got != tt.expected {
+				t.Errorf("ExtractModuleAttribute(%q, %d) = %q, want %q", tt.line, tt.col, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFindModuleAttributeDefinition(t *testing.T) {
+	text := `defmodule MyAppWeb.V1.PayslipController do
+  @open_api_shared_tags ["Payroll", "Payslips"]
+
+  @endpoint_scopes %{
+    index: %{scopes: [:read]}
+  }
+
+  def show(conn, _params) do
+    tags = @open_api_shared_tags
+    :ok
+  end
+end`
+
+	t.Run("finds user-defined attribute", func(t *testing.T) {
+		line, found := FindModuleAttributeDefinition(text, "open_api_shared_tags")
+		if !found || line != 2 {
+			t.Errorf("expected line 2, got line=%d found=%v", line, found)
+		}
+	})
+
+	t.Run("finds multi-line attribute", func(t *testing.T) {
+		line, found := FindModuleAttributeDefinition(text, "endpoint_scopes")
+		if !found || line != 4 {
+			t.Errorf("expected line 4, got line=%d found=%v", line, found)
+		}
+	})
+
+	t.Run("ignores reserved attributes", func(t *testing.T) {
+		for _, reserved := range []string{"doc", "moduledoc", "spec", "behaviour", "callback", "impl", "derive"} {
+			_, found := FindModuleAttributeDefinition(text, reserved)
+			if found {
+				t.Errorf("reserved attr @%s should not be found", reserved)
+			}
+		}
+	})
+
+	t.Run("returns false for missing attribute", func(t *testing.T) {
+		_, found := FindModuleAttributeDefinition(text, "nonexistent")
+		if found {
+			t.Error("expected not found for nonexistent attribute")
+		}
+	})
 }

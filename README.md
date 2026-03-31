@@ -13,10 +13,10 @@ Dexter is designed to run **alongside** your existing Elixir LSP, not replace it
 brew install sqlite
 mise use -g go@1.26.1
 
-# 2. Install dexter
+# 2. Install dexter (requires a tagged release to exist)
 mise plugin add dexter git@gitlab.com:remote-com/employ-starbase/dexter.git
-mise install dexter@latest
-mise use -g dexter@latest
+mise install dexter@0.1.1
+mise use -g dexter@0.1.1
 
 # 3. Index your project (one-time, ~8s for a large codebase)
 # Run from your monorepo root — dexter will place .dexter.db next to your .git directory

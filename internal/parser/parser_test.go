@@ -575,6 +575,50 @@ end
 	t.Error("missing defdelegate process")
 }
 
+func TestParseFile_RelativeNestedModule(t *testing.T) {
+	path := writeTempFile(t, `defmodule MyAppWeb.ApiDocs.Payslips do
+  defmodule PayslipDownloadResponse do
+    def schema do
+      :ok
+    end
+  end
+
+  def index do
+    :ok
+  end
+end
+`)
+
+	defs, err := ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	modules := map[string]int{}
+	funcs := map[string]string{}
+	for _, d := range defs {
+		if d.Kind == "module" {
+			modules[d.Module] = d.Line
+		}
+		if d.Function != "" {
+			funcs[d.Function] = d.Module
+		}
+	}
+
+	if _, ok := modules["MyAppWeb.ApiDocs.Payslips"]; !ok {
+		t.Error("missing MyAppWeb.ApiDocs.Payslips")
+	}
+	if _, ok := modules["MyAppWeb.ApiDocs.Payslips.PayslipDownloadResponse"]; !ok {
+		t.Error("missing MyAppWeb.ApiDocs.Payslips.PayslipDownloadResponse (relative nested module)")
+	}
+	if funcs["schema"] != "MyAppWeb.ApiDocs.Payslips.PayslipDownloadResponse" {
+		t.Errorf("schema should belong to MyAppWeb.ApiDocs.Payslips.PayslipDownloadResponse, got %q", funcs["schema"])
+	}
+	if funcs["index"] != "MyAppWeb.ApiDocs.Payslips" {
+		t.Errorf("index should belong to MyAppWeb.ApiDocs.Payslips, got %q", funcs["index"])
+	}
+}
+
 func TestParseFile_Defguard(t *testing.T) {
 	path := writeTempFile(t, `defmodule MyApp.Guards do
   defguard is_admin(user) when user.role == :admin

@@ -176,7 +176,7 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 		},
 		ServerInfo: &protocol.ServerInfo{
 			Name:    "dexter",
-			Version: "0.1.0",
+			Version: "0.1.2",
 		},
 	}, nil
 }
@@ -252,6 +252,17 @@ func (s *Server) Definition(ctx context.Context, params *protocol.DefinitionPara
 		return nil, nil
 	}
 
+	// Check for @module_attribute reference first
+	if attrName := ExtractModuleAttribute(lines[lineNum], col); attrName != "" {
+		if line, found := FindModuleAttributeDefinition(text, attrName); found {
+			return []protocol.Location{{
+				URI:   params.TextDocument.URI,
+				Range: lineRange(line - 1),
+			}}, nil
+		}
+		return nil, nil
+	}
+
 	expr := ExtractExpression(lines[lineNum], col)
 	if expr == "" {
 		return nil, nil
@@ -292,7 +303,15 @@ func (s *Server) Definition(ctx context.Context, params *protocol.DefinitionPara
 	aliases := ExtractAliases(text)
 	fullModule := moduleRef
 	if resolved, ok := aliases[moduleRef]; ok {
+		// Exact alias: "Foo" -> "MyApp.Handlers.Foo"
 		fullModule = resolved
+	} else if parts := strings.SplitN(moduleRef, ".", 2); len(parts) == 2 {
+		// Partial alias: "Services.AssociateWithTeamV2" where the file has
+		// "alias __MODULE__.Services". Only resolves if the first segment is
+		// explicitly aliased — otherwise falls through to a direct lookup.
+		if resolved, ok := aliases[parts[0]]; ok {
+			fullModule = resolved + "." + parts[1]
+		}
 	}
 
 	if functionName != "" {

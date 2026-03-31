@@ -93,7 +93,13 @@ func ParseFile(path string) ([]Definition, error) {
 		}
 
 		if m := defmoduleRe.FindStringSubmatch(line); m != nil {
-			currentModule = m[1]
+			name := m[1]
+			// A single-segment name (no dots) nested inside another module is
+			// relative: defmodule Foo inside defmodule Bar becomes Bar.Foo
+			if !strings.Contains(name, ".") && currentModule != "" {
+				name = currentModule + "." + name
+			}
+			currentModule = name
 			moduleStack = append(moduleStack, currentModule)
 			defs = append(defs, Definition{
 				Module:   currentModule,
