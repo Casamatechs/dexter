@@ -7,15 +7,19 @@ import (
 	"strings"
 )
 
+// Shared regex patterns used by both the parser and the LSP.
+var (
+	AliasRe   = regexp.MustCompile(`^\s*alias\s+([A-Za-z0-9_.]+)`)
+	AliasAsRe = regexp.MustCompile(`^\s*alias\s+([A-Za-z0-9_.]+)\s*,\s*as:\s*([A-Za-z0-9_]+)`)
+	FuncDefRe = regexp.MustCompile(`^\s*(defp?|defmacrop?|defguardp?|defdelegate)\s+([a-z_][a-z0-9_?!]*)[\s(,]`)
+)
+
 var (
 	defmoduleRe    = regexp.MustCompile(`^\s*defmodule\s+([A-Za-z0-9_.]+)\s+do`)
-	defRe          = regexp.MustCompile(`^\s*(defp?|defmacrop?|defguardp?|defdelegate)\s+([a-z_][a-z0-9_?!]*)\s*[\(|,|do|\s]`)
 	defprotocolRe  = regexp.MustCompile(`^\s*defprotocol\s+([A-Za-z0-9_.]+)\s+do`)
 	defimplRe      = regexp.MustCompile(`^\s*defimpl\s+([A-Za-z0-9_.]+)`)
 	defstructRe    = regexp.MustCompile(`^\s*defstruct\s`)
 	defexceptionRe = regexp.MustCompile(`^\s*defexception\s`)
-	aliasRe        = regexp.MustCompile(`^\s*alias\s+([A-Za-z0-9_.]+)`)
-	aliasAsRe      = regexp.MustCompile(`^\s*alias\s+([A-Za-z0-9_.]+)\s*,\s*as:\s*([A-Za-z0-9_]+)`)
 	delegateToRe   = regexp.MustCompile(`to:\s*([A-Za-z0-9_.]+)`)
 	delegateAsRe   = regexp.MustCompile(`as:\s*:?([a-z_][a-z0-9_?!]*)`)
 )
@@ -69,9 +73,9 @@ func ParseFile(path string) ([]Definition, error) {
 		}
 
 		// Track aliases
-		if m := aliasAsRe.FindStringSubmatch(line); m != nil {
+		if m := AliasAsRe.FindStringSubmatch(line); m != nil {
 			aliases[m[2]] = m[1]
-		} else if m := aliasRe.FindStringSubmatch(line); m != nil {
+		} else if m := AliasRe.FindStringSubmatch(line); m != nil {
 			parts := strings.Split(m[1], ".")
 			shortName := parts[len(parts)-1]
 			aliases[shortName] = m[1]
@@ -114,7 +118,7 @@ func ParseFile(path string) ([]Definition, error) {
 		}
 
 		if currentModule != "" {
-			if m := defRe.FindStringSubmatch(line); m != nil {
+			if m := FuncDefRe.FindStringSubmatch(line); m != nil {
 				kind := m[1]
 				funcName := m[2]
 				def := Definition{
@@ -185,42 +189,24 @@ func IsElixirFile(path string) bool {
 	return extension == ".ex" || extension == ".exs"
 }
 
-func countArity(line string, funcName string) int {
-	idx := strings.Index(line, funcName)
-	if idx == -1 {
-		return 0
-	}
-	rest := line[idx+len(funcName):]
-	rest = strings.TrimSpace(rest)
-
-	if len(rest) == 0 || rest[0] != '(' {
-		return 0
-	}
-
-	depth := 0
-	commas := 0
-	hasContent := false
-	for _, ch := range rest {
-		switch ch {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				if hasContent {
-					return commas + 1
-				}
-				return 0
-			}
-		case ',':
-			if depth == 1 {
-				commas++
-			}
-		default:
-			if depth == 1 && ch != ' ' && ch != '\t' {
-				hasContent = true
-			}
+// WalkElixirFiles walks root, skipping _build/.git/node_modules directories,
+// and calls fn for each .ex/.exs file found.
+func WalkElixirFiles(root string, fn func(path string, info os.FileInfo) error) error {
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
 		}
-	}
-	return 0
+		if info.IsDir() {
+			base := filepath.Base(path)
+			if base == "_build" || base == ".git" || base == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !IsElixirFile(path) {
+			return nil
+		}
+		return fn(path, info)
+	})
 }
+

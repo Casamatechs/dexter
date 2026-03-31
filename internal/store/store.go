@@ -15,10 +15,11 @@ type Store struct {
 
 func Open(projectRoot string) (*Store, error) {
 	dbPath := filepath.Join(projectRoot, ".dexter.db")
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_synchronous=NORMAL")
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000&_foreign_keys=ON")
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(2)
 
 	if err := migrate(db); err != nil {
 		db.Close()
@@ -26,6 +27,10 @@ func Open(projectRoot string) (*Store, error) {
 	}
 
 	return &Store{db: db}, nil
+}
+
+func (s *Store) Close() error {
+	return s.db.Close()
 }
 
 func migrate(db *sql.DB) error {
@@ -51,10 +56,6 @@ func migrate(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_definitions_file_path ON definitions(file_path);
 	`)
 	return err
-}
-
-func (s *Store) Close() error {
-	return s.db.Close()
 }
 
 func (s *Store) GetFileMtime(path string) (int64, bool) {
@@ -131,31 +132,21 @@ type LookupResult struct {
 }
 
 func (s *Store) LookupModule(module string) ([]LookupResult, error) {
-	rows, err := s.db.Query(
+	return s.queryLookup(
 		"SELECT file_path, line, kind, delegate_to, delegate_as FROM definitions WHERE module = ? AND function = '' AND kind IN ('module', 'defprotocol', 'defimpl')",
 		module,
 	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []LookupResult
-	for rows.Next() {
-		var r LookupResult
-		if err := rows.Scan(&r.FilePath, &r.Line, &r.Kind, &r.DelegateTo, &r.DelegateAs); err != nil {
-			return nil, err
-		}
-		results = append(results, r)
-	}
-	return results, rows.Err()
 }
 
 func (s *Store) LookupFunction(module, function string) ([]LookupResult, error) {
-	rows, err := s.db.Query(
+	return s.queryLookup(
 		"SELECT file_path, line, kind, delegate_to, delegate_as FROM definitions WHERE module = ? AND function = ? AND kind NOT IN ('module', 'defprotocol', 'defimpl')",
 		module, function,
 	)
+}
+
+func (s *Store) queryLookup(query string, args ...interface{}) ([]LookupResult, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

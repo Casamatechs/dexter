@@ -12,13 +12,7 @@ func NewDocumentStore() *DocumentStore {
 	return &DocumentStore{docs: make(map[string]string)}
 }
 
-func (ds *DocumentStore) Open(uri string, text string) {
-	ds.mu.Lock()
-	defer ds.mu.Unlock()
-	ds.docs[uri] = text
-}
-
-func (ds *DocumentStore) Update(uri string, text string) {
+func (ds *DocumentStore) Set(uri string, text string) {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 	ds.docs[uri] = text

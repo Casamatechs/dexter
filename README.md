@@ -44,14 +44,27 @@ dexter = "latest"
 ## Quick start
 
 ```sh
-# 1. Index your project (one-time, ~8s for a large codebase)
+# 1. Install dexter
+mise plugin add dexter git@gitlab.com:remote-com/employ-starbase/dexter.git
+mise install dexter@latest
+mise use -g dexter@latest
+
+# 2. Index your project (one-time, ~8s for a large codebase)
 cd ~/code/my-elixir-project
 dexter init .
 
-# 2. Add .dexter.db to your .gitignore
+# 3. Add .dexter.db to your .gitignore
 echo ".dexter.db" >> .gitignore
 
-# 3. Configure your editor (see below)
+# 4. Configure your editor (see below)
+```
+
+### VS Code / Cursor extension
+
+```sh
+git clone git@gitlab.com:remote-com/employ-starbase/dexter-vscode.git
+cd dexter-vscode
+make install-vscode   # or make install-cursor
 ```
 
 ## Editor setup
@@ -99,38 +112,13 @@ lspconfig.dexter.setup({})
 
 ### VS Code / Cursor
 
-Install the [Generic LSP Client](https://marketplace.visualstudio.com/items?itemName=llllvvuu.llm-lsp) extension (or any extension that lets you configure a custom LSP server), then add to your `settings.json`:
+Install the [dexter-vscode](https://gitlab.com/remote-com/employ-starbase/dexter-vscode) extension, then optionally set the binary path if dexter is not on your PATH:
 
 ```json
 {
-  "genericLSP.serverCommand": "dexter",
-  "genericLSP.serverArgs": ["lsp"],
-  "genericLSP.languages": ["elixir"]
+  "dexter.binary": "/Users/you/.local/share/mise/shims/dexter"
 }
 ```
-
-Alternatively, create a `.vscode/settings.json` in your project:
-
-```json
-{
-  "elixir.languageServerOverride": {
-    "command": "dexter",
-    "args": ["lsp"]
-  }
-}
-```
-
-The exact configuration depends on which LSP client extension you use. The key is: the command is `dexter lsp`, communicating over stdio.
-
-### Any editor with LSP support
-
-Dexter speaks standard LSP over stdio. Configure your editor to run:
-
-```
-dexter lsp
-```
-
-as a language server for `elixir` files. It advertises `definitionProvider` and `textDocumentSync`.
 
 ## CLI usage
 
@@ -205,7 +193,7 @@ When running as an LSP server, dexter automatically:
 
 ## Performance
 
-Measured on a 57k-file Elixir umbrella app (2.5M lines, 340k+ definitions):
+Measured on a 57k-file Elixir monorepo app (2.5M lines, 340k+ definitions):
 
 | Operation | Time |
 |-----------|------|
@@ -213,3 +201,15 @@ Measured on a 57k-file Elixir umbrella app (2.5M lines, 340k+ definitions):
 | Lookup (LSP or CLI) | ~10ms |
 | Single file reindex (on save) | ~10ms |
 | Full reindex (no changes) | ~2s |
+
+## Releasing
+
+```sh
+make release VERSION=0.2.0
+```
+
+This updates the version in `internal/lsp/server.go`, commits, tags, and pushes. Users can then upgrade via mise:
+
+```sh
+mise install dexter@latest
+```

@@ -162,20 +162,8 @@ func cmdInit(projectRoot string, force bool) {
 
 	// Phase 1: collect file paths
 	var paths []string
-	err = filepath.Walk(projectRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if info.IsDir() {
-			base := filepath.Base(path)
-			if base == "_build" || base == ".git" || base == "node_modules" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if parser.IsElixirFile(path) {
-			paths = append(paths, path)
-		}
+	err = parser.WalkElixirFiles(projectRoot, func(path string, info os.FileInfo) error {
+		paths = append(paths, path)
 		return nil
 	})
 	if err != nil {
@@ -254,21 +242,7 @@ func cmdReindex(target string) {
 	reindexed := 0
 	skipped := 0
 
-	err = filepath.Walk(target, func(path string, fi os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if fi.IsDir() {
-			base := filepath.Base(path)
-			if base == "_build" || base == ".git" || base == "node_modules" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !parser.IsElixirFile(path) {
-			return nil
-		}
-
+	err = parser.WalkElixirFiles(target, func(path string, fi os.FileInfo) error {
 		storedMtime, found := s.GetFileMtime(path)
 		currentMtime := fi.ModTime().UnixNano()
 		if found && storedMtime == currentMtime {

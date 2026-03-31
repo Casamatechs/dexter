@@ -22,7 +22,7 @@ type Server struct {
 	store       *store.Store
 	docs        *DocumentStore
 	projectRoot string
-	client      protocol.Client
+	initialized bool
 }
 
 func NewServer(s *store.Store, projectRoot string) *Server {
@@ -47,7 +47,7 @@ func Serve(in io.Reader, out io.Writer, s *store.Store, projectRoot string) erro
 	logger, _ := zap.NewProduction()
 	stream := jsonrpc2.NewStream(stdinoutCloser{in, out})
 	conn := jsonrpc2.NewConn(stream)
-	server.client = protocol.ClientDispatcher(conn, logger)
+	_ = protocol.ClientDispatcher(conn, logger)
 
 	handler := protocol.ServerHandler(server, nil)
 	ctx := context.Background()
@@ -63,21 +63,7 @@ func (s *Server) backgroundReindex() {
 		start := time.Now()
 		reindexed := 0
 
-		filepath.Walk(s.projectRoot, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-			if info.IsDir() {
-				base := filepath.Base(path)
-				if base == "_build" || base == ".git" || base == "node_modules" {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if !parser.IsElixirFile(path) {
-				return nil
-			}
-
+		parser.WalkElixirFiles(s.projectRoot, func(path string, info os.FileInfo) error {
 			storedMtime, found := s.store.GetFileMtime(path)
 			currentMtime := info.ModTime().UnixNano()
 			if found && storedMtime == currentMtime {
@@ -88,7 +74,9 @@ func (s *Server) backgroundReindex() {
 			if err != nil {
 				return nil
 			}
-			s.store.IndexFile(path, defs)
+			if err := s.store.IndexFile(path, defs); err != nil {
+				log.Printf("Warning: reindex %s: %v", path, err)
+			}
 			reindexed++
 			return nil
 		})
@@ -133,12 +121,17 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 	if params.RootURI != "" {
 		root := uriToPath(params.RootURI)
 		if root != "" {
-			s.projectRoot = root
+			s.projectRoot = findDexterRoot(root)
 		}
 	}
 
-	s.backgroundReindex()
-	s.watchGitHead()
+	log.Printf("Initialize: projectRoot=%s", s.projectRoot)
+
+	if !s.initialized {
+		s.initialized = true
+		s.backgroundReindex()
+		s.watchGitHead()
+	}
 
 	return &protocol.InitializeResult{
 		Capabilities: protocol.ServerCapabilities{
@@ -174,14 +167,14 @@ func (s *Server) Exit(ctx context.Context) error {
 // === Document Sync ===
 
 func (s *Server) DidOpen(ctx context.Context, params *protocol.DidOpenTextDocumentParams) error {
-	s.docs.Open(string(params.TextDocument.URI), params.TextDocument.Text)
+	s.docs.Set(string(params.TextDocument.URI), params.TextDocument.Text)
 	return nil
 }
 
 func (s *Server) DidChange(ctx context.Context, params *protocol.DidChangeTextDocumentParams) error {
 	if len(params.ContentChanges) > 0 {
 		// Full sync mode — last change contains the full text
-		s.docs.Update(string(params.TextDocument.URI), params.ContentChanges[len(params.ContentChanges)-1].Text)
+		s.docs.Set(string(params.TextDocument.URI), params.ContentChanges[len(params.ContentChanges)-1].Text)
 	}
 	return nil
 }
@@ -215,8 +208,11 @@ func (s *Server) DidSave(ctx context.Context, params *protocol.DidSaveTextDocume
 
 func (s *Server) Definition(ctx context.Context, params *protocol.DefinitionParams) ([]protocol.Location, error) {
 	docURI := string(params.TextDocument.URI)
+	log.Printf("Definition request: uri=%s line=%d col=%d", docURI, params.Position.Line, params.Position.Character)
+
 	text, ok := s.docs.Get(docURI)
 	if !ok {
+		log.Printf("Definition: document not found in store")
 		return nil, nil
 	}
 
@@ -225,15 +221,18 @@ func (s *Server) Definition(ctx context.Context, params *protocol.DefinitionPara
 	col := int(params.Position.Character)
 
 	if lineNum >= len(lines) {
+		log.Printf("Definition: line %d out of range (total %d)", lineNum, len(lines))
 		return nil, nil
 	}
 
 	expr := ExtractExpression(lines[lineNum], col)
 	if expr == "" {
+		log.Printf("Definition: no expression at cursor")
 		return nil, nil
 	}
 
 	moduleRef, functionName := ExtractModuleAndFunction(expr)
+	log.Printf("Definition: expr=%q module=%q function=%q", expr, moduleRef, functionName)
 
 	// Bare function call — check local buffer, then imports
 	if moduleRef == "" {
@@ -269,13 +268,17 @@ func (s *Server) Definition(ctx context.Context, params *protocol.DefinitionPara
 	fullModule := moduleRef
 	if resolved, ok := aliases[moduleRef]; ok {
 		fullModule = resolved
+		log.Printf("Definition: resolved alias %q -> %q", moduleRef, fullModule)
 	}
 
 	if functionName != "" {
+		log.Printf("Definition: looking up %s.%s", fullModule, functionName)
 		results, err := s.store.LookupFollowDelegate(fullModule, functionName)
 		if err == nil && len(results) > 0 {
+			log.Printf("Definition: found %d results", len(results))
 			return storeResultsToLocations(results), nil
 		}
+		log.Printf("Definition: no function results, falling back to module")
 	}
 
 	// Fall back to module
@@ -301,6 +304,22 @@ func lineRange(line int) protocol.Range {
 	return protocol.Range{
 		Start: protocol.Position{Line: uint32(line), Character: 0},
 		End:   protocol.Position{Line: uint32(line), Character: 0},
+	}
+}
+
+// findDexterRoot walks up from the given path looking for .dexter.db.
+// Falls back to the original path if not found.
+func findDexterRoot(path string) string {
+	dir := path
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".dexter.db")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return path
+		}
+		dir = parent
 	}
 }
 

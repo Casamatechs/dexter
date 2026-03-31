@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"gitlab.com/remote-com/employ-starbase/dexter/internal/parser"
 )
 
 // ExtractExpression returns the full dotted expression around the cursor position.
@@ -67,11 +69,8 @@ func ExtractModuleAndFunction(expr string) (moduleRef string, functionName strin
 }
 
 var (
-	aliasAsRe    = regexp.MustCompile(`^\s*alias\s+([A-Za-z0-9_.]+)\s*,\s*as:\s*([A-Za-z0-9_]+)`)
 	aliasMultiRe = regexp.MustCompile(`^\s*alias\s+([A-Za-z0-9_.]+)\.{([^}]+)}`)
-	aliasSimpleRe = regexp.MustCompile(`^\s*alias\s+([A-Za-z0-9_.]+)`)
 	importRe     = regexp.MustCompile(`^\s*import\s+([A-Za-z0-9_.]+)`)
-	funcDefRe    = regexp.MustCompile(`^\s*(defp?|defmacrop?|defguardp?|defdelegate)\s+([a-z_][a-z0-9_?!]*)[\s(,]`)
 )
 
 // ExtractAliases parses all alias declarations from document text.
@@ -81,7 +80,7 @@ func ExtractAliases(text string) map[string]string {
 	aliases := make(map[string]string)
 	for _, line := range strings.Split(text, "\n") {
 		// alias A.B.C, as: D
-		if m := aliasAsRe.FindStringSubmatch(line); m != nil {
+		if m := parser.AliasAsRe.FindStringSubmatch(line); m != nil {
 			aliases[m[2]] = m[1]
 			continue
 		}
@@ -97,7 +96,7 @@ func ExtractAliases(text string) map[string]string {
 			continue
 		}
 		// alias A.B.C
-		if m := aliasSimpleRe.FindStringSubmatch(line); m != nil {
+		if m := parser.AliasRe.FindStringSubmatch(line); m != nil {
 			fullMod := m[1]
 			parts := strings.Split(fullMod, ".")
 			shortName := parts[len(parts)-1]
@@ -124,7 +123,7 @@ func ExtractImports(text string) []string {
 // matching the given function name. Returns the 1-based line number and true if found.
 func FindFunctionDefinition(text string, functionName string) (int, bool) {
 	for i, line := range strings.Split(text, "\n") {
-		if m := funcDefRe.FindStringSubmatch(line); m != nil {
+		if m := parser.FuncDefRe.FindStringSubmatch(line); m != nil {
 			if m[2] == functionName {
 				return i + 1, true
 			}
