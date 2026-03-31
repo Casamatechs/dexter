@@ -9,17 +9,15 @@ Dexter is designed to run **alongside** your existing Elixir LSP, not replace it
 ## Quick start
 
 ```sh
-# 1. Install dependencies
+# 1. Install dependencies (if you don't already have them)
 brew install sqlite
 mise use -g go@1.26.1
 
 # 2. Install dexter (requires a tagged release to exist)
-mise plugin add dexter git@gitlab.com:remote-com/employ-starbase/dexter.git
-mise install dexter@0.1.1
-mise use -g dexter@0.1.1
+mise plugin add dexter git@gitlab.com:remote-com/employ-starbase/dexter.git && mise use -g dexter@latest
 
-# 3. Add .dexter.db to your .gitignore
-echo ".dexter.db" >> .gitignore
+# 3. Add .dexter.db to your global .gitignore
+echo ".dexter.db*" >> .gitignore
 
 # 4. Configure your editor (see below)
 # The LSP server auto-builds the index on first startup — no need to run dexter init manually.
@@ -31,8 +29,10 @@ echo ".dexter.db" >> .gitignore
 ```sh
 git clone git@gitlab.com:remote-com/employ-starbase/dexter-vscode.git
 cd dexter-vscode
-make install-vscode   # or make install-cursor
+make install   # or make install-vscode
 ```
+
+You'll need to restart Cursor after installing the new extension.
 
 ## Editor setup
 
@@ -60,7 +60,7 @@ vim.keymap.set("n", "<leader>va", function()
 end)
 ```
 
-### Neovim (with nvim-lspconfig)
+### Neovim (with nvim-lspconfig - NeoVim < 0.11)
 
 ```lua
 local lspconfig = require("lspconfig")
@@ -77,9 +77,15 @@ configs.dexter = {
 lspconfig.dexter.setup({})
 ```
 
-### VS Code / Cursor
+### Cursor/VSCode
 
 Install the [dexter-vscode](https://gitlab.com/remote-com/employ-starbase/dexter-vscode) extension, then optionally set the binary path if dexter is not on your PATH:
+
+```sh
+git clone git@gitlab.com:remote-com/employ-starbase/dexter-vscode.git
+cd dexter-vscode
+make install   # for Cursor, or make install-vscode for VSCode
+```
 
 ```json
 {
