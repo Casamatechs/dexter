@@ -148,7 +148,7 @@ func cmdInit(projectRoot string, force bool) {
 			os.Exit(1)
 		}
 		for _, f := range []string{dbPath, dbPath + "-shm", dbPath + "-wal"} {
-			os.Remove(f) // ignore errors — files may not exist
+			_ = os.Remove(f) // files may not exist
 		}
 	}
 
