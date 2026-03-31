@@ -44,8 +44,7 @@ install_version() {
 	(
 		mkdir -p "$install_path"
 
-		command -v go >/dev/null 2>&1 || fail "Go is required to build dexter. Install it from https://go.dev/dl/"
-		command -v cc >/dev/null 2>&1 || fail "A C compiler is required (for SQLite). On macOS run: xcode-select --install"
+		"${ASDF_DOWNLOAD_PATH}/bin/check-deps"
 
 		echo "* Building $TOOL_NAME v$version..."
 		cd "$ASDF_DOWNLOAD_PATH"

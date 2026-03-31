@@ -4,59 +4,28 @@ A fast Elixir go-to-definition engine that runs as an LSP server. Built for larg
 
 Dexter indexes every module and function definition in your project into a local SQLite database, then serves instant go-to-definition responses over the Language Server Protocol. It understands aliases, imports, `defdelegate`, nested modules, and heredocs.
 
-## Why?
-
-Elixir LSP servers (ElixirLS, Lexical, etc.) can struggle with very large umbrella apps. Ctags works but doesn't understand Elixir module namespacing, so `Foo` often resolves to the wrong module. Dexter sits in between — it's Elixir-aware but doesn't try to be a full LSP. Just fast, correct go-to-definition.
-
 Dexter is designed to run **alongside** your existing Elixir LSP, not replace it. Use dexter for fast navigation and your full LSP for diagnostics, completions, and refactoring.
-
-## Install
-
-### From source
-
-Requires Go 1.21+ and Xcode command line tools (for SQLite via CGo).
-
-```sh
-git clone git@gitlab.com:remote-com/employ-starbase/dexter.git
-cd dexter
-go build -o dexter ./cmd/
-cp dexter /usr/local/bin/
-```
-
-### With mise
-
-```sh
-mise plugin add dexter git@gitlab.com:remote-com/employ-starbase/dexter.git
-mise install dexter@latest
-mise use dexter@latest
-```
-
-Or add to your `.mise.toml`:
-
-```toml
-[plugins]
-dexter = "git@gitlab.com:remote-com/employ-starbase/dexter.git"
-
-[tools]
-dexter = "latest"
-```
 
 ## Quick start
 
 ```sh
-# 1. Install dexter
+# 1. Install dependencies
+brew install sqlite
+mise use -g go@1.26.1
+
+# 2. Install dexter
 mise plugin add dexter git@gitlab.com:remote-com/employ-starbase/dexter.git
 mise install dexter@latest
 mise use -g dexter@latest
 
-# 2. Index your project (one-time, ~8s for a large codebase)
+# 3. Index your project (one-time, ~8s for a large codebase)
 cd ~/code/my-elixir-project
 dexter init .
 
-# 3. Add .dexter.db to your .gitignore
+# 4. Add .dexter.db to your .gitignore
 echo ".dexter.db" >> .gitignore
 
-# 4. Configure your editor (see below)
+# 5. Configure your editor (see below)
 ```
 
 ### VS Code / Cursor extension
@@ -120,9 +89,21 @@ Install the [dexter-vscode](https://gitlab.com/remote-com/employ-starbase/dexter
 }
 ```
 
+## Features
+
+- **Alias resolution** — `alias MyApp.Handlers.Foo`, `alias MyApp.Handlers.Foo, as: Cool`, `alias MyApp.Handlers.{Foo, Bar}`
+- **Import resolution** — bare function calls resolved through `import` declarations
+- **Delegate following** — `defdelegate fetch(id), to: MyApp.Repo` jumps to `MyApp.Repo.fetch`, respecting `as:` renames
+- **Local buffer search** — private function calls resolve without leaving the current file
+- **All def forms** — `def`, `defp`, `defmacro`, `defmacrop`, `defguard`, `defguardp`, `defdelegate`, `defprotocol`, `defimpl`, `defstruct`, `defexception`
+- **Heredoc awareness** — code examples in `@moduledoc`/`@doc` are skipped
+- **Module nesting** — correctly tracks `end` keywords to attribute functions to the right module
+- **Git branch detection** — automatically reindexes when you switch branches
+- **Parallel indexing** — uses all CPU cores for initial index
+
 ## CLI usage
 
-The CLI commands are still available for scripting and manual use.
+The CLI commands are available for scripting and manual use.
 
 ### Index a project
 
@@ -169,18 +150,6 @@ When running as an LSP server, dexter automatically:
 - Runs an incremental reindex on startup
 - Watches `.git/HEAD` for branch switches and reindexes when detected
 
-## Features
-
-- **Alias resolution** — `alias MyApp.Handlers.Foo`, `alias MyApp.Handlers.Foo, as: Cool`, `alias MyApp.Handlers.{Foo, Bar}`
-- **Import resolution** — bare function calls resolved through `import` declarations
-- **Delegate following** — `defdelegate fetch(id), to: MyApp.Repo` jumps to `MyApp.Repo.fetch`, respecting `as:` renames
-- **Local buffer search** — private function calls resolve without leaving the current file
-- **All def forms** — `def`, `defp`, `defmacro`, `defmacrop`, `defguard`, `defguardp`, `defdelegate`, `defprotocol`, `defimpl`, `defstruct`, `defexception`
-- **Heredoc awareness** — code examples in `@moduledoc`/`@doc` are skipped
-- **Module nesting** — correctly tracks `end` keywords to attribute functions to the right module
-- **Git branch detection** — automatically reindexes when you switch branches
-- **Parallel indexing** — uses all CPU cores for initial index
-
 ## How it works
 
 1. **Parsing** — `.ex`/`.exs` files are scanned line-by-line with regex for definition declarations. The parser tracks module nesting, heredoc boundaries, and aliases for `defdelegate` resolution.
@@ -193,7 +162,7 @@ When running as an LSP server, dexter automatically:
 
 ## Performance
 
-Measured on a 57k-file Elixir monorepo app (2.5M lines, 340k+ definitions):
+Measured on a 57k-file Elixir monorepo (2.5M lines, 340k+ definitions):
 
 | Operation | Time |
 |-----------|------|
@@ -201,6 +170,22 @@ Measured on a 57k-file Elixir monorepo app (2.5M lines, 340k+ definitions):
 | Lookup (LSP or CLI) | ~10ms |
 | Single file reindex (on save) | ~10ms |
 | Full reindex (no changes) | ~2s |
+
+## Why?
+
+Elixir LSP servers (ElixirLS, Lexical, etc.) can struggle with very large monorepos. Ctags works but doesn't understand Elixir module namespacing, so `Foo` often resolves to the wrong module. Dexter sits in between — it's Elixir-aware but doesn't try to be a full LSP. Just fast, correct go-to-definition.
+
+## Development
+
+Requires Go 1.21+ and Xcode command line tools (for SQLite via CGo).
+
+```sh
+git clone git@gitlab.com:remote-com/employ-starbase/dexter.git
+cd dexter
+mise install
+make build
+make test
+```
 
 ## Releasing
 
