@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 
 	"gitlab.com/remote-com/employ-starbase/dexter/internal/parser"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/stdlib"
 	"gitlab.com/remote-com/employ-starbase/dexter/internal/store"
 )
 
@@ -27,16 +26,14 @@ type Server struct {
 	initialized     bool
 	client          protocol.Client
 	followDelegates bool
-	includeStdlib   bool
 }
 
-func NewServer(s *store.Store, projectRoot string, includeStdlib bool) *Server {
+func NewServer(s *store.Store, projectRoot string) *Server {
 	return &Server{
 		store:           s,
 		docs:            NewDocumentStore(),
 		projectRoot:     projectRoot,
 		followDelegates: true, // default
-		includeStdlib:   includeStdlib,
 	}
 }
 
@@ -48,8 +45,8 @@ type stdinoutCloser struct {
 func (s stdinoutCloser) Close() error { return nil }
 
 // Serve starts the LSP server on the given reader/writer (typically stdin/stdout).
-func Serve(in io.Reader, out io.Writer, s *store.Store, projectRoot string, includeStdlib bool) error {
-	server := NewServer(s, projectRoot, includeStdlib)
+func Serve(in io.Reader, out io.Writer, s *store.Store, projectRoot string) error {
+	server := NewServer(s, projectRoot)
 
 	logger, _ := zap.NewProduction()
 	stream := jsonrpc2.NewStream(stdinoutCloser{in, out})
@@ -82,7 +79,7 @@ func (s *Server) backgroundReindex() {
 			}
 		}
 
-		walkFn := func(path string, info os.FileInfo) error {
+		parser.WalkElixirFiles(s.projectRoot, func(path string, info os.FileInfo) error {
 			if !isEmpty {
 				storedMtime, found := s.store.GetFileMtime(path)
 				currentMtime := info.ModTime().UnixNano()
@@ -100,16 +97,7 @@ func (s *Server) backgroundReindex() {
 			}
 			reindexed++
 			return nil
-		}
-
-		_ = parser.WalkElixirFiles(s.projectRoot, walkFn)
-		if s.includeStdlib {
-			if stdlibRoot, ok := stdlib.DetectElixirLibRoot(); ok {
-				_ = parser.WalkElixirFiles(stdlibRoot, walkFn)
-			} else {
-				log.Printf("Warning: includeStdlib enabled, but Elixir stdlib sources were not found (set DEXTER_ELIXIR_LIB_ROOT to override)")
-			}
-		}
+		})
 
 		elapsed := time.Since(start).Round(time.Millisecond)
 		log.Printf("Background reindex: %d files updated (%s)", reindexed, elapsed)
@@ -166,9 +154,6 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 	if opts, ok := params.InitializationOptions.(map[string]interface{}); ok {
 		if v, ok := opts["followDelegates"].(bool); ok {
 			s.followDelegates = v
-		}
-		if v, ok := opts["includeStdlib"].(bool); ok {
-			s.includeStdlib = v
 		}
 	}
 

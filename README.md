@@ -104,7 +104,6 @@ make install   # for Cursor, or make install-vscode for VSCode
 - **Module nesting** — correctly tracks `end` keywords to attribute functions to the right module
 - **Git branch detection** — automatically reindexes when you switch branches
 - **Parallel indexing** — uses all CPU cores for initial index
-- **Elixir stdlib indexing** — jump to `Enum`, `String`, etc. by indexing your local Elixir installation sources
 
 ## CLI usage
 
@@ -113,17 +112,11 @@ The CLI commands are available for scripting and manual use.
 ### Index a project
 
 ```sh
-# First time — indexes all .ex/.exs files (including deps/) plus Elixir stdlib
+# First time — indexes all .ex/.exs files (including deps/)
 dexter init ~/code/my-elixir-project
 
 # Re-init from scratch (deletes existing index)
 dexter init --force ~/code/my-elixir-project
-```
-
-If Dexter can’t auto-detect your Elixir source path, set:
-
-```sh
-export DEXTER_ELIXIR_LIB_ROOT="/path/to/elixir/lib/elixir"
 ```
 
 ### Look up definitions
@@ -182,13 +175,6 @@ dexter init .
 When the LSP server starts, it walks up from the project root looking for `.dexter.db`, preferring `.git` as the anchor point. This means if you initialised from the monorepo root, the server will find the right database even when Neovim's `rootUri` points to a sub-app (e.g. because `mix.exs` is there).
 
 If no `.dexter.db` exists anywhere, the LSP server builds the index automatically on first startup.
-
-## LSP options
-
-Dexter reads `initializationOptions` from your editor configuration:
-
-- **`followDelegates`** (boolean, default: `true`): follow `defdelegate` targets on lookup.
-- **`includeStdlib`** (boolean, default: `true`): index Elixir stdlib sources so core modules like `Enum` resolve.
 
 ## How it works
 
