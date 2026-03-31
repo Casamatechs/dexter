@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 
 	"gitlab.com/remote-com/employ-starbase/dexter/internal/parser"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/stdlib"
 	"gitlab.com/remote-com/employ-starbase/dexter/internal/store"
 )
 
@@ -27,16 +26,14 @@ type Server struct {
 	initialized     bool
 	client          protocol.Client
 	followDelegates bool
-	includeStdlib   bool
 }
 
-func NewServer(s *store.Store, projectRoot string, includeStdlib bool) *Server {
+func NewServer(s *store.Store, projectRoot string) *Server {
 	return &Server{
 		store:           s,
 		docs:            NewDocumentStore(),
 		projectRoot:     projectRoot,
 		followDelegates: true, // default
-		includeStdlib:   includeStdlib,
 	}
 }
 
@@ -48,8 +45,8 @@ type stdinoutCloser struct {
 func (s stdinoutCloser) Close() error { return nil }
 
 // Serve starts the LSP server on the given reader/writer (typically stdin/stdout).
-func Serve(in io.Reader, out io.Writer, s *store.Store, projectRoot string, includeStdlib bool) error {
-	server := NewServer(s, projectRoot, includeStdlib)
+func Serve(in io.Reader, out io.Writer, s *store.Store, projectRoot string) error {
+	server := NewServer(s, projectRoot)
 
 	logger, _ := zap.NewProduction()
 	stream := jsonrpc2.NewStream(stdinoutCloser{in, out})
@@ -82,7 +79,7 @@ func (s *Server) backgroundReindex() {
 			}
 		}
 
-		walkFn := func(path string, info os.FileInfo) error {
+		parser.WalkElixirFiles(s.projectRoot, func(path string, info os.FileInfo) error {
 			if !isEmpty {
 				storedMtime, found := s.store.GetFileMtime(path)
 				currentMtime := info.ModTime().UnixNano()
@@ -100,16 +97,7 @@ func (s *Server) backgroundReindex() {
 			}
 			reindexed++
 			return nil
-		}
-
-		_ = parser.WalkElixirFiles(s.projectRoot, walkFn)
-		if s.includeStdlib {
-			if stdlibRoot, ok := stdlib.DetectElixirLibRoot(); ok {
-				_ = parser.WalkElixirFiles(stdlibRoot, walkFn)
-			} else {
-				log.Printf("Warning: includeStdlib enabled, but Elixir stdlib sources were not found (set DEXTER_ELIXIR_LIB_ROOT to override)")
-			}
-		}
+		})
 
 		elapsed := time.Since(start).Round(time.Millisecond)
 		log.Printf("Background reindex: %d files updated (%s)", reindexed, elapsed)
@@ -167,9 +155,6 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 		if v, ok := opts["followDelegates"].(bool); ok {
 			s.followDelegates = v
 		}
-		if v, ok := opts["includeStdlib"].(bool); ok {
-			s.includeStdlib = v
-		}
 	}
 
 	if !s.initialized {
@@ -188,10 +173,13 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 				},
 			},
 			DefinitionProvider: true,
+			CompletionProvider: &protocol.CompletionOptions{
+				TriggerCharacters: []string{"."},
+			},
 		},
 		ServerInfo: &protocol.ServerInfo{
 			Name:    "dexter",
-			Version: "0.1.4",
+			Version: "0.2.0",
 		},
 	}, nil
 }
@@ -412,7 +400,120 @@ func (s *Server) ColorPresentation(ctx context.Context, params *protocol.ColorPr
 	return nil, nil
 }
 func (s *Server) Completion(ctx context.Context, params *protocol.CompletionParams) (*protocol.CompletionList, error) {
-	return nil, nil
+	docURI := string(params.TextDocument.URI)
+
+	text, ok := s.docs.Get(docURI)
+	if !ok {
+		return nil, nil
+	}
+
+	lines := strings.Split(text, "\n")
+	lineNum := int(params.Position.Line)
+	col := int(params.Position.Character)
+
+	if lineNum >= len(lines) {
+		return nil, nil
+	}
+
+	prefix, afterDot := ExtractCompletionContext(lines[lineNum], col)
+	if prefix == "" && !afterDot {
+		return nil, nil
+	}
+
+	moduleRef, funcPrefix := ExtractModuleAndFunction(prefix)
+	aliases := ExtractAliases(text)
+
+	var items []protocol.CompletionItem
+
+	if moduleRef != "" && (afterDot || funcPrefix != "") {
+		resolved := resolveModule(moduleRef, aliases)
+		results, err := s.store.ListModuleFunctions(resolved, true)
+		if err != nil {
+			return nil, nil
+		}
+		for _, r := range results {
+			if funcPrefix != "" && !strings.HasPrefix(r.Function, funcPrefix) {
+				continue
+			}
+			items = append(items, protocol.CompletionItem{
+				Label:  r.Function,
+				Kind:   kindToCompletionItemKind(r.Kind),
+				Detail: r.Kind,
+			})
+		}
+	} else if moduleRef != "" {
+		results, err := s.store.SearchModules(moduleRef)
+		if err != nil {
+			return nil, nil
+		}
+		for _, r := range results {
+			items = append(items, protocol.CompletionItem{
+				Label:  r.Module,
+				Kind:   protocol.CompletionItemKindModule,
+				Detail: "module",
+			})
+		}
+	} else if funcPrefix != "" {
+		seen := make(map[string]bool)
+
+		for _, bf := range FindBufferFunctions(text) {
+			if strings.HasPrefix(bf.Name, funcPrefix) && !seen[bf.Name] {
+				seen[bf.Name] = true
+				items = append(items, protocol.CompletionItem{
+					Label:  bf.Name,
+					Kind:   kindToCompletionItemKind(bf.Kind),
+					Detail: bf.Kind,
+				})
+			}
+		}
+
+		for _, mod := range ExtractImports(text) {
+			results, err := s.store.ListModuleFunctions(mod, true)
+			if err != nil {
+				continue
+			}
+			for _, r := range results {
+				if strings.HasPrefix(r.Function, funcPrefix) && !seen[r.Function] {
+					seen[r.Function] = true
+					items = append(items, protocol.CompletionItem{
+						Label:  r.Function,
+						Kind:   kindToCompletionItemKind(r.Kind),
+						Detail: r.Module + " (" + r.Kind + ")",
+					})
+				}
+			}
+		}
+	}
+
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	return &protocol.CompletionList{
+		IsIncomplete: false,
+		Items:        items,
+	}, nil
+}
+
+func resolveModule(moduleRef string, aliases map[string]string) string {
+	if resolved, ok := aliases[moduleRef]; ok {
+		return resolved
+	}
+	if parts := strings.SplitN(moduleRef, ".", 2); len(parts) == 2 {
+		if resolved, ok := aliases[parts[0]]; ok {
+			return resolved + "." + parts[1]
+		}
+	}
+	return moduleRef
+}
+
+func kindToCompletionItemKind(kind string) protocol.CompletionItemKind {
+	switch kind {
+	case "module", "defprotocol":
+		return protocol.CompletionItemKindModule
+	default:
+		return protocol.CompletionItemKindFunction
+	}
 }
 func (s *Server) CompletionResolve(ctx context.Context, params *protocol.CompletionItem) (*protocol.CompletionItem, error) {
 	return nil, nil
