@@ -374,6 +374,17 @@ func (s *Server) Definition(ctx context.Context, params *protocol.DefinitionPara
 		return nil, nil
 	}
 
+	// Substitute __MODULE__ with the actual module name so that expressions
+	// like __MODULE__.User resolve correctly through normal alias/module paths.
+	if strings.Contains(expr, "__MODULE__") {
+		for _, l := range lines {
+			if m := parser.DefmoduleRe.FindStringSubmatch(l); m != nil {
+				expr = strings.ReplaceAll(expr, "__MODULE__", m[1])
+				break
+			}
+		}
+	}
+
 	moduleRef, functionName := ExtractModuleAndFunction(expr)
 	aliases := ExtractAliases(text)
 
@@ -1035,6 +1046,15 @@ func (s *Server) Hover(ctx context.Context, params *protocol.HoverParams) (*prot
 	expr := ExtractExpression(lines[lineNum], col)
 	if expr == "" {
 		return nil, nil
+	}
+
+	if strings.Contains(expr, "__MODULE__") {
+		for _, l := range lines {
+			if m := parser.DefmoduleRe.FindStringSubmatch(l); m != nil {
+				expr = strings.ReplaceAll(expr, "__MODULE__", m[1])
+				break
+			}
+		}
 	}
 
 	moduleRef, functionName := ExtractModuleAndFunction(expr)

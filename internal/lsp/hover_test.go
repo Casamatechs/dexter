@@ -723,3 +723,59 @@ end`
 		t.Errorf("expected raw interpolation preserved, got %q", doc)
 	}
 }
+
+func TestHover_ModuleKeyword(t *testing.T) {
+	server, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	src := `defmodule MyApp.Accounts do
+  @moduledoc "Manages user accounts."
+
+  alias __MODULE__.User
+
+  def get_user(id), do: {:ok, id}
+end`
+	indexFile(t, server.store, server.projectRoot, "lib/accounts.ex", src)
+	uri := "file:///test.ex"
+	server.docs.Set(uri, src)
+
+	// col=9 is on '__MODULE__' in the alias line (line 3)
+	hover := hoverAt(t, server, uri, 3, 9)
+	if hover == nil {
+		t.Fatal("expected hover for __MODULE__")
+	}
+	if !strings.Contains(hover.Contents.Value, "MyApp.Accounts") {
+		t.Errorf("expected module name in hover, got %q", hover.Contents.Value)
+	}
+	if !strings.Contains(hover.Contents.Value, "Manages user accounts") {
+		t.Errorf("expected moduledoc in hover, got %q", hover.Contents.Value)
+	}
+}
+
+func TestHover_ModuleKeywordSubmodule(t *testing.T) {
+	server, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	indexFile(t, server.store, server.projectRoot, "lib/accounts/user.ex", `defmodule MyApp.Accounts.User do
+  @moduledoc "Represents a user."
+  def new, do: %{}
+end`)
+
+	src := `defmodule MyApp.Accounts do
+  alias __MODULE__.User
+
+  def get_user(id), do: User.new()
+end`
+	indexFile(t, server.store, server.projectRoot, "lib/accounts.ex", src)
+	uri := "file:///test.ex"
+	server.docs.Set(uri, src)
+
+	// col=9 is on 'User' in alias __MODULE__.User (line 1)
+	hover := hoverAt(t, server, uri, 1, 20)
+	if hover == nil {
+		t.Fatal("expected hover for __MODULE__.User")
+	}
+	if !strings.Contains(hover.Contents.Value, "MyApp.Accounts.User") {
+		t.Errorf("expected submodule in hover, got %q", hover.Contents.Value)
+	}
+}
