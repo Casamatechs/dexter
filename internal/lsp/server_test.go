@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1726,6 +1727,119 @@ end`
 	}
 }
 
+func TestServer_Formatting(t *testing.T) {
+	_, err := exec.LookPath("mix")
+	if err != nil {
+		t.Skip("mix not available in PATH")
+	}
+
+	server, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create mix.exs so findMixRoot succeeds
+	if err := os.WriteFile(filepath.Join(server.projectRoot, "mix.exs"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	unformatted := `defmodule   MyApp.Fmt   do
+def   hello(   ), do:    :world
+end
+`
+	filePath := filepath.Join(server.projectRoot, "lib", "fmt.ex")
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	docURI := string(uri.File(filePath))
+	server.docs.Set(docURI, unformatted)
+
+	edits, err := server.Formatting(context.Background(), &protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: protocol.DocumentURI(docURI)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edits == nil {
+		t.Fatal("expected formatting edits, got nil")
+	}
+	if len(edits) != 1 {
+		t.Fatalf("expected 1 edit, got %d", len(edits))
+	}
+	if edits[0].Range.Start.Line != 0 || edits[0].Range.Start.Character != 0 {
+		t.Error("expected edit to start at 0:0")
+	}
+	if !strings.Contains(edits[0].NewText, "defmodule MyApp.Fmt do") {
+		t.Errorf("expected formatted output, got: %s", edits[0].NewText)
+	}
+}
+
+func TestServer_Formatting_OutsideProjectRoot(t *testing.T) {
+	server, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	uri := "file:///etc/shadow.ex"
+	server.docs.Set(uri, "defmodule Evil do\nend\n")
+
+	edits, err := server.Formatting(context.Background(), &protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: protocol.DocumentURI(uri)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edits != nil {
+		t.Error("expected nil edits for file outside project root")
+	}
+}
+
+func TestServer_Formatting_NonElixirFile(t *testing.T) {
+	server, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	uri := "file:///test.go"
+	server.docs.Set(uri, "package main")
+
+	edits, err := server.Formatting(context.Background(), &protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: protocol.DocumentURI(uri)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edits != nil {
+		t.Error("expected nil edits for non-Elixir file")
+	}
+}
+
+func TestServer_Formatting_AlreadyFormatted(t *testing.T) {
+	_, err := exec.LookPath("mix")
+	if err != nil {
+		t.Skip("mix not available in PATH")
+	}
+
+	server, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	if err := os.WriteFile(filepath.Join(server.projectRoot, "mix.exs"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	formatted := "defmodule MyApp.Fmt do\n  def hello, do: :world\nend\n"
+	filePath := filepath.Join(server.projectRoot, "lib", "fmt.ex")
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	docURI := string(uri.File(filePath))
+	server.docs.Set(docURI, formatted)
+
+	edits, err := server.Formatting(context.Background(), &protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: protocol.DocumentURI(docURI)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edits != nil {
+		t.Error("expected nil edits for already-formatted file")
+	}
+}
+
 func TestDetectElixirStdlibRoot(t *testing.T) {
 	root, ok := stdlib.DetectElixirLibRoot()
 	if !ok {
@@ -1735,6 +1849,109 @@ func TestDetectElixirStdlibRoot(t *testing.T) {
 	enumPath := filepath.Join(root, "elixir", "lib", "enum.ex")
 	if _, err := os.Stat(enumPath); os.IsNotExist(err) {
 		t.Errorf("expected stdlib enum.ex at %s", enumPath)
+	}
+}
+
+func TestFindMixRoot(t *testing.T) {
+	root := t.TempDir()
+
+	// Create a monorepo structure (no root mix.exs):
+	//   root/my_app/mix.exs
+	//   root/my_app/lib/
+	//   root/other_project/mix.exs
+	//   root/other_project/lib/
+	my_app := filepath.Join(root, "my_app")
+	if err := os.MkdirAll(filepath.Join(my_app, "lib"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	my_appMix := filepath.Join(my_app, "mix.exs")
+	if err := os.WriteFile(my_appMix, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	otherProject := filepath.Join(root, "other_project")
+	if err := os.MkdirAll(filepath.Join(otherProject, "lib"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	otherMix := filepath.Join(otherProject, "mix.exs")
+	if err := os.WriteFile(otherMix, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("finds nearest mix.exs from project lib dir", func(t *testing.T) {
+		got := findMixRoot(filepath.Join(my_app, "lib"))
+		if got != my_app {
+			t.Errorf("expected %s, got %s", my_app, got)
+		}
+	})
+
+	t.Run("finds mix.exs in same directory", func(t *testing.T) {
+		got := findMixRoot(my_app)
+		if got != my_app {
+			t.Errorf("expected %s, got %s", my_app, got)
+		}
+	})
+
+	t.Run("each project resolves to its own mix root", func(t *testing.T) {
+		got := findMixRoot(filepath.Join(otherProject, "lib"))
+		if got != otherProject {
+			t.Errorf("expected %s, got %s", otherProject, got)
+		}
+	})
+
+	t.Run("returns empty when no mix.exs exists", func(t *testing.T) {
+		empty := t.TempDir()
+		got := findMixRoot(empty)
+		if got != "" {
+			t.Errorf("expected empty string, got %s", got)
+		}
+	})
+}
+
+func TestFormatting_NoDocument(t *testing.T) {
+	server, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	edits, err := server.Formatting(context.Background(), &protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{
+			URI: "file:///nonexistent.ex",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edits != nil {
+		t.Error("expected nil edits for unknown document")
+	}
+}
+
+func TestFormatting_NoMixProject(t *testing.T) {
+	server, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	docURI := "file:///tmp/nomixroot/lib/foo.ex"
+	server.docs.Set(docURI, "defmodule Foo do\nend\n")
+
+	edits, err := server.Formatting(context.Background(), &protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{
+			URI: protocol.DocumentURI(docURI),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edits != nil {
+		t.Error("expected nil edits when no mix.exs exists")
+	}
+}
+
+func TestMixCommand_SetsDir(t *testing.T) {
+	server, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	dir := t.TempDir()
+	cmd := server.mixCommand(context.Background(), dir, "format", "-")
+	if cmd.Dir != dir {
+		t.Errorf("expected Dir=%s, got %s", dir, cmd.Dir)
 	}
 }
 

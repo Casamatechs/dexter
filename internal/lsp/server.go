@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -48,6 +50,7 @@ type Server struct {
 	client          protocol.Client
 	followDelegates bool
 	debug           bool
+	mixBin          string // resolved path to the mix binary
 
 	usingCache   map[string]*usingCacheEntry // module name → parsed __using__ result
 	usingCacheMu sync.RWMutex
@@ -272,6 +275,16 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 	if root, ok := stdlib.Resolve(s.store, explicitStdlibPath); ok {
 		s.stdlibRoot = root
 		log.Printf("Elixir stdlib at: %s", root)
+
+		// Derive mix binary from the same Elixir install
+		mixBin := filepath.Join(root, "..", "bin", "mix")
+		if resolved, err := filepath.Abs(mixBin); err == nil {
+			mixBin = resolved
+		}
+		if _, err := os.Stat(mixBin); err == nil {
+			s.mixBin = mixBin
+			log.Printf("Mix binary at: %s", mixBin)
+		}
 	} else {
 		log.Printf("Could not detect Elixir stdlib (set stdlibPath in initializationOptions or DEXTER_ELIXIR_LIB_ROOT)")
 		if s.client != nil {
@@ -279,6 +292,16 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 				Type:    protocol.MessageTypeWarning,
 				Message: "Dexter: could not detect Elixir stdlib — stdlib modules (Enum, String, etc.) won't resolve. Set stdlibPath in initializationOptions or DEXTER_ELIXIR_LIB_ROOT.",
 			})
+		}
+	}
+
+	// Fallback: find mix in PATH
+	if s.mixBin == "" {
+		if p, err := exec.LookPath("mix"); err == nil {
+			s.mixBin = p
+			log.Printf("Mix binary at: %s (PATH fallback)", p)
+		} else {
+			log.Printf("Could not find mix binary — formatting will not work")
 		}
 	}
 
@@ -293,7 +316,7 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 		s.showDocumentSupported = params.Capabilities.Window.ShowDocument.Support
 	}
 
-	return &protocol.InitializeResult{
+	result := &protocol.InitializeResult{
 		Capabilities: protocol.ServerCapabilities{
 			TextDocumentSync: protocol.TextDocumentSyncOptions{
 				OpenClose: true,
@@ -302,17 +325,18 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 					IncludeText: false,
 				},
 			},
-			DefinitionProvider:        true,
-			TypeDefinitionProvider:    true,
-			ReferencesProvider:        true,
-			HoverProvider:             true,
-			DocumentHighlightProvider: true,
-			DocumentSymbolProvider:    true,
-			WorkspaceSymbolProvider:   true,
-			FoldingRangeProvider:      true,
-			CodeActionProvider:        true,
-			RenameProvider:            &protocol.RenameOptions{PrepareProvider: true},
-			CallHierarchyProvider:     true,
+			DefinitionProvider:         true,
+			TypeDefinitionProvider:     true,
+			ReferencesProvider:         true,
+			DocumentFormattingProvider: true,
+			HoverProvider:              true,
+			DocumentHighlightProvider:  true,
+			DocumentSymbolProvider:     true,
+			WorkspaceSymbolProvider:    true,
+			FoldingRangeProvider:       true,
+			CodeActionProvider:         true,
+			RenameProvider:             &protocol.RenameOptions{PrepareProvider: true},
+			CallHierarchyProvider:      true,
 			CompletionProvider: &protocol.CompletionOptions{
 				TriggerCharacters: []string{"."},
 				ResolveProvider:   true,
@@ -326,7 +350,9 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 			Name:    "dexter",
 			Version: version.Version,
 		},
-	}, nil
+	}
+	s.debugf("Initialize: capabilities: %+v", result.Capabilities)
+	return result, nil
 }
 
 func (s *Server) Initialized(ctx context.Context, params *protocol.InitializedParams) error {
@@ -401,6 +427,21 @@ func (s *Server) DidSave(ctx context.Context, params *protocol.DidSaveTextDocume
 	}()
 
 	return nil
+}
+
+func (s *Server) isProjectFile(path string) bool {
+	cleaned := filepath.Clean(path)
+	return strings.HasPrefix(cleaned, s.projectRoot+string(os.PathSeparator))
+}
+
+func (s *Server) mixCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
+	bin := s.mixBin
+	if bin == "" {
+		bin = "mix"
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = dir
+	return cmd
 }
 
 // === Definition ===
@@ -489,13 +530,13 @@ func (s *Server) Definition(ctx context.Context, params *protocol.DefinitionPara
 				continue
 			}
 			if len(results) > 0 {
-				return storeResultsToLocations(results), nil
+				return storeResultsToLocations(filterOutTypes(results)), nil
 			}
 		}
 
 		// Check use-injected imports and inline defs
 		if results := s.lookupThroughUse(text, functionName, aliases); len(results) > 0 {
-			return storeResultsToLocations(results), nil
+			return storeResultsToLocations(filterOutTypes(results)), nil
 		}
 
 		// Fallback: try the use'd modules themselves directly. Handles DSL macros
@@ -510,7 +551,7 @@ func (s *Server) Definition(ctx context.Context, params *protocol.DefinitionPara
 
 		// Kernel is always imported — fall back to it last
 		if results, err := s.store.LookupFollowDelegate("Kernel", functionName); err == nil && len(results) > 0 {
-			return storeResultsToLocations(results), nil
+			return storeResultsToLocations(filterOutTypes(results)), nil
 		}
 
 		return nil, nil
@@ -539,7 +580,7 @@ func (s *Server) Definition(ctx context.Context, params *protocol.DefinitionPara
 			results, err = s.store.LookupFunction(fullModule, functionName)
 		}
 		if err == nil && len(results) > 0 {
-			return storeResultsToLocations(results), nil
+			return storeResultsToLocations(filterOutTypes(results)), nil
 		}
 		// Not directly defined — the function may have been injected by a
 		// `use` macro in fullModule's source (e.g. Oban.Worker injects `new`).
@@ -575,6 +616,21 @@ func storeResultsToLocations(results []store.LookupResult) []protocol.Location {
 		})
 	}
 	return locations
+}
+
+var typeKinds = map[string]bool{"type": true, "typep": true, "opaque": true}
+
+func filterOutTypes(results []store.LookupResult) []store.LookupResult {
+	var nonTypes []store.LookupResult
+	for _, r := range results {
+		if !typeKinds[r.Kind] {
+			nonTypes = append(nonTypes, r)
+		}
+	}
+	if len(nonTypes) > 0 {
+		return nonTypes
+	}
+	return results
 }
 
 func lineRange(line int) protocol.Range {
@@ -619,6 +675,20 @@ func findDexterRoot(path string) string {
 		}
 	}
 	return path
+}
+
+// findMixRoot walks up from dir looking for the nearest mix.exs.
+func findMixRoot(dir string) string {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "mix.exs")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 func uriToPath(u protocol.DocumentURI) string {
@@ -2008,8 +2078,52 @@ func (s *Server) FoldingRanges(ctx context.Context, params *protocol.FoldingRang
 
 	return ranges, nil
 }
+
 func (s *Server) Formatting(ctx context.Context, params *protocol.DocumentFormattingParams) ([]protocol.TextEdit, error) {
-	return nil, nil
+	s.debugf("Formatting: request received for %s", params.TextDocument.URI)
+	path := uriToPath(params.TextDocument.URI)
+	if path == "" || !parser.IsElixirFile(path) || !s.isProjectFile(path) {
+		return nil, nil
+	}
+
+	text, ok := s.docs.Get(string(params.TextDocument.URI))
+	if !ok {
+		return nil, nil
+	}
+
+	mixRoot := findMixRoot(filepath.Dir(path))
+	if mixRoot == "" {
+		return nil, nil
+	}
+
+	start := time.Now()
+	cmd := s.mixCommand(ctx, mixRoot, "format", "--stdin-filename", path, "-")
+	cmd.Stdin = strings.NewReader(text)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		log.Printf("Formatting: mix format failed for %s (%s): %v\n%s", path, time.Since(start), err, stderr.String())
+		return nil, nil
+	}
+
+	formatted := stdout.String()
+	if formatted == text {
+		log.Printf("Formatting: %s already formatted (%s)", path, time.Since(start))
+		return nil, nil
+	}
+
+	lines := strings.Count(text, "\n") + 1
+	log.Printf("Formatting: %s changed (%s, %d bytes → %d bytes)", path, time.Since(start), len(text), len(formatted))
+	return []protocol.TextEdit{
+		{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: uint32(lines), Character: 0},
+			},
+			NewText: formatted,
+		},
+	}, nil
 }
 func (s *Server) Hover(ctx context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
 	docURI := string(params.TextDocument.URI)
