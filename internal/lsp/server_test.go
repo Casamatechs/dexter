@@ -1549,6 +1549,51 @@ end`
 	}
 }
 
+func TestReferences_UsingMacroShowsUseSites(t *testing.T) {
+	server, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	macroSrc := `defmodule MyApp.Schema do
+  defmacro __using__(_opts) do
+    quote do
+      import Ecto.Schema
+    end
+  end
+end`
+	callerASrc := `defmodule MyApp.User do
+  use MyApp.Schema
+end`
+	callerBSrc := `defmodule MyApp.Post do
+  use MyApp.Schema
+end`
+
+	indexFile(t, server.store, server.projectRoot, "lib/schema.ex", macroSrc)
+	indexFile(t, server.store, server.projectRoot, "lib/user.ex", callerASrc)
+	indexFile(t, server.store, server.projectRoot, "lib/post.ex", callerBSrc)
+
+	schemaURI := "file://" + filepath.Join(server.projectRoot, "lib/schema.ex")
+	server.docs.Set(schemaURI, macroSrc)
+
+	// col=13 is on `__using__` in "  defmacro __using__(_opts) do"
+	locs := referencesAt(t, server, schemaURI, 1, 13)
+	if len(locs) != 2 {
+		t.Fatalf("expected 2 use sites, got %d: %v", len(locs), locs)
+	}
+
+	paths := make(map[string]bool)
+	for _, loc := range locs {
+		paths[string(loc.URI)] = true
+	}
+	userURI := "file://" + filepath.Join(server.projectRoot, "lib/user.ex")
+	postURI := "file://" + filepath.Join(server.projectRoot, "lib/post.ex")
+	if !paths[userURI] {
+		t.Errorf("expected user.ex in use sites, got: %v", locs)
+	}
+	if !paths[postURI] {
+		t.Errorf("expected post.ex in use sites, got: %v", locs)
+	}
+}
+
 func TestReferences_BareFunctionCalls(t *testing.T) {
 	server, cleanup := setupTestServer(t)
 	defer cleanup()

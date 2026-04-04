@@ -1101,6 +1101,12 @@ func (s *Server) Completion(ctx context.Context, params *protocol.CompletionPara
 // LookupModule is only called on the first access. The cache is invalidated
 // when the source file's mtime changes.
 func (s *Server) cachedUsing(moduleName string) *usingCacheEntry {
+	return s.cachedUsingWithPath(moduleName, "")
+}
+
+// cachedUsingWithPath is like cachedUsing but accepts a known file path to
+// skip the LookupModule query on a cache miss.
+func (s *Server) cachedUsingWithPath(moduleName, knownPath string) *usingCacheEntry {
 	s.usingCacheMu.RLock()
 	entry, ok := s.usingCache[moduleName]
 	s.usingCacheMu.RUnlock()
@@ -1120,12 +1126,16 @@ func (s *Server) cachedUsing(moduleName string) *usingCacheEntry {
 		return nil
 	}
 
-	// Cache miss — look up file path from the store (only on first access)
-	modResults, err := s.store.LookupModule(moduleName)
-	if err != nil || len(modResults) == 0 {
-		return nil
+	// Cache miss — use provided path or look up from the store
+	filePath := knownPath
+	if filePath == "" {
+		modResults, err := s.store.LookupModule(moduleName)
+		if err != nil || len(modResults) == 0 {
+			return nil
+		}
+		filePath = modResults[0].FilePath
 	}
-	filePath := filepath.Clean(modResults[0].FilePath)
+	filePath = filepath.Clean(filePath)
 	newEntry := s.parseUsingFile(filePath)
 	if newEntry == nil {
 		return nil
@@ -1268,31 +1278,55 @@ func (s *Server) resolveModuleViaUseChain(moduleName, functionName string, visit
 // (directly or transitively via use) imports targetModule. Follows the chain
 // upward: if C.__using__ imports targetModule, and B.__using__ uses C, and
 // A.__using__ uses B, then all of [C, B, A] are returned.
+//
+// Instead of searching all refs for the target module (expensive for common
+// modules like String), this iterates over the small set of modules that
+// define __using__ and checks their cached import/transUse lists.
 func (s *Server) findModulesWhoseUsingImports(targetModule string) []string {
-	// Step 1: Find modules whose __using__ directly imports targetModule
-	importRefs, err := s.store.LookupReferences(targetModule, "")
+	usingModules, err := s.store.LookupUsingModules()
 	if err != nil {
 		return nil
 	}
 
+	// Load and validate __using__ entries concurrently, using file paths
+	// from the index to skip per-module LookupModule queries on cache miss.
+	// Parallelism helps because each entry requires an os.Stat call for
+	// mtime validation (and possibly a file read on cache miss).
+	type cached struct {
+		module string
+		entry  *usingCacheEntry
+	}
+	entries := make([]cached, len(usingModules))
+	var wg sync.WaitGroup
+	for i, um := range usingModules {
+		wg.Add(1)
+		go func(i int, mod, path string) {
+			defer wg.Done()
+			entry := s.cachedUsingWithPath(mod, path)
+			if entry != nil {
+				entries[i] = cached{mod, entry}
+			}
+		}(i, um.Module, um.FilePath)
+	}
+	wg.Wait()
+	// Compact out nil entries.
+	n := 0
+	for _, c := range entries {
+		if c.entry != nil {
+			entries[n] = c
+			n++
+		}
+	}
+	entries = entries[:n]
+
+	// Step 1: Find modules whose __using__ directly imports targetModule.
 	seen := make(map[string]bool)
 	var directInjectors []string
-	for _, ref := range importRefs {
-		if ref.Kind != "import" {
-			continue
-		}
-		mod, _, _, _, found := s.store.LookupEnclosingFunction(ref.FilePath, ref.Line)
-		if !found || seen[mod] {
-			continue
-		}
-		seen[mod] = true
-		entry := s.cachedUsing(mod)
-		if entry == nil {
-			continue
-		}
-		for _, imp := range entry.imports {
+	for _, c := range entries {
+		for _, imp := range c.entry.imports {
 			if imp == targetModule {
-				directInjectors = append(directInjectors, mod)
+				directInjectors = append(directInjectors, c.module)
+				seen[c.module] = true
 				break
 			}
 		}
@@ -1304,40 +1338,22 @@ func (s *Server) findModulesWhoseUsingImports(targetModule string) []string {
 
 	// Step 2: Walk upward — find modules whose __using__ transitively uses
 	// any of the direct injectors (via transUses in __using__ bodies).
-	// Use refs to find who `use`s these modules, then check their __using__.
-	var allInjectors []string
-	allInjectors = append(allInjectors, directInjectors...)
-
-	queue := make([]string, len(directInjectors))
-	copy(queue, directInjectors)
+	allInjectors := append([]string{}, directInjectors...)
+	queue := append([]string{}, directInjectors...)
 
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
 
-		// Find modules that reference `current` with kind='use'
-		useRefs, err := s.store.LookupReferences(current, "")
-		if err != nil {
-			continue
-		}
-		for _, ref := range useRefs {
-			if ref.Kind != "use" {
+		for _, c := range entries {
+			if seen[c.module] {
 				continue
 			}
-			mod, _, _, _, found := s.store.LookupEnclosingFunction(ref.FilePath, ref.Line)
-			if !found || seen[mod] {
-				continue
-			}
-			seen[mod] = true
-			// Check if this use is inside a __using__ body (making it a transitive injector)
-			entry := s.cachedUsing(mod)
-			if entry == nil {
-				continue
-			}
-			for _, tu := range entry.transUses {
+			for _, tu := range c.entry.transUses {
 				if tu == current {
-					allInjectors = append(allInjectors, mod)
-					queue = append(queue, mod)
+					seen[c.module] = true
+					allInjectors = append(allInjectors, c.module)
+					queue = append(queue, c.module)
 					break
 				}
 			}
@@ -2380,6 +2396,31 @@ func (s *Server) References(ctx context.Context, params *protocol.ReferenceParam
 		return nil, nil
 	}
 
+	// Special case: cursor on defmacro __using__ — find all `use ModuleName` sites.
+	if expr == "__using__" {
+		for _, l := range lines {
+			if m := parser.DefmoduleRe.FindStringSubmatch(l); m != nil {
+				s.debugf("References: __using__ in module %s — looking up use sites", m[1])
+				allRefs, err := s.store.LookupReferences(m[1], "")
+				if err != nil {
+					return nil, nil
+				}
+				var locations []protocol.Location
+				for _, r := range allRefs {
+					if r.Kind == "use" {
+						locations = append(locations, protocol.Location{
+							URI:   uri.File(r.FilePath),
+							Range: lineRange(r.Line - 1),
+						})
+					}
+				}
+				s.debugf("References: returning %d use sites", len(locations))
+				return locations, nil
+			}
+		}
+		return nil, nil
+	}
+
 	if strings.Contains(expr, "__MODULE__") {
 		for _, l := range lines {
 			if m := parser.DefmoduleRe.FindStringSubmatch(l); m != nil {
@@ -2463,6 +2504,23 @@ func (s *Server) References(ctx context.Context, params *protocol.ReferenceParam
 	}
 
 	s.debugf("References: looking up refs for %s.%s", fullModule, functionName)
+
+	// Run direct lookup and use-chain injector scan concurrently — they
+	// are independent and together dominate the total request time.
+	type injectorResult struct {
+		injectors []string
+		elapsed   time.Duration
+	}
+	var injectorCh chan injectorResult
+	if functionName != "" {
+		injectorCh = make(chan injectorResult, 1)
+		go func() {
+			tInj := s.debugNow()
+			inj := s.findModulesWhoseUsingImports(fullModule)
+			injectorCh <- injectorResult{inj, time.Since(tInj)}
+		}()
+	}
+
 	tStep := s.debugNow()
 	refResults, err := s.store.LookupReferences(fullModule, functionName)
 	if err != nil {
@@ -2476,15 +2534,12 @@ func (s *Server) References(ctx context.Context, params *protocol.ReferenceParam
 	// Also find refs attributed to modules whose __using__ transitively imports
 	// fullModule. Refs to use-injected functions are attributed to the injecting
 	// module (the one whose __using__ does the import), not the consuming module.
-	// Instead of scanning all modules with calls to functionName (can be thousands
-	// for common names), we find injector modules directly via import refs.
-	if functionName != "" {
-		tStep = s.debugNow()
-		injectors := s.findModulesWhoseUsingImports(fullModule)
+	if injectorCh != nil {
+		ir := <-injectorCh
 		if s.debug {
-			s.debugf("References: use-chain injectors for %s: %v (%s)", fullModule, injectors, time.Since(tStep).Round(time.Microsecond))
+			s.debugf("References: use-chain injectors for %s: %v (%s)", fullModule, ir.injectors, ir.elapsed.Round(time.Microsecond))
 		}
-		for _, mod := range injectors {
+		for _, mod := range ir.injectors {
 			transitive, err := s.store.LookupReferences(mod, functionName)
 			if err == nil {
 				refResults = append(refResults, transitive...)

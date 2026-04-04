@@ -781,6 +781,32 @@ func (s *Store) ListSubmodules(prefix string) ([]string, error) {
 	return modules, rows.Err()
 }
 
+// UsingModule pairs a module name with the file that defines its __using__ macro.
+type UsingModule struct {
+	Module   string
+	FilePath string
+}
+
+// LookupUsingModules returns all modules that define a defmacro __using__
+// function, along with their file paths. The result set is typically small.
+func (s *Store) LookupUsingModules() ([]UsingModule, error) {
+	rows, err := s.db.Query("SELECT DISTINCT module, file_path FROM definitions WHERE function = '__using__'")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var modules []UsingModule
+	for rows.Next() {
+		var m UsingModule
+		if err := rows.Scan(&m.Module, &m.FilePath); err != nil {
+			return nil, err
+		}
+		modules = append(modules, m)
+	}
+	return modules, rows.Err()
+}
+
 // LookupEnclosingFunction returns the function definition that encloses the
 // given line in a file (the nearest def/defp/defmacro at or before lineNum).
 func (s *Store) LookupEnclosingFunction(filePath string, lineNum int) (module, function string, arity int, line int, found bool) {
