@@ -43,6 +43,11 @@ vim.lsp.config('dexter', {
   cmd = { 'dexter', 'lsp' },
   root_markers = { '.dexter.db', '.git', 'mix.exs' },
   filetypes = { 'elixir', 'eelixir' },
+  init_options = {
+    followDelegates = true,  -- jump through defdelegate to the target function
+    -- stdlibPath = "",      -- override Elixir stdlib path (auto-detected)
+    -- debug = false,        -- verbose logging to stderr (view with :LspLog)
+  },
 })
 
 vim.lsp.enable 'dexter'
@@ -128,6 +133,8 @@ make install   # for Cursor, or make install-vscode for VSCode
 - **Variable support** — go-to-definition and autocompletion for local variables via tree-sitter, with correct scoping across `case`, `with`, `for`, and other block constructs
 - **Heredoc awareness** — code examples in `@moduledoc`/`@doc` are skipped
 - **Module nesting** — correctly tracks `end` keywords to attribute functions to the right module
+- **Format on save** — automatically formats Elixir files on save via `mix format`, running asynchronously so saves are never blocked. Stale results are discarded if the buffer changes. Manual formatting via `textDocument/formatting` is also available.
+- **Monorepo-aware formatting** — uses the nearest `mix.exs` ancestor to find the correct `.formatter.exs`, so subprojects with different formatter configs just work
 - **Git branch detection** — automatically reindexes when you switch branches
 - **Parallel indexing** — uses all CPU cores for initial index
 
@@ -258,6 +265,14 @@ Dexter reads `initializationOptions` from your editor configuration:
 - **`stdlibPath`** (string): override the Elixir stdlib directory to index. Defaults to auto-detection; use this if your install is non-standard.
 - **`debug`** (boolean, default: `false`): enable verbose logging to stderr. Logs timing and resolution details for every definition, hover, references, and rename request. Can also be enabled via the `DEXTER_DEBUG=true` environment variable.
 
+## Formatting
+
+Dexter provides `textDocument/formatting` via `mix format`. To enable format-on-save, configure your editor to call formatting before save (e.g. `editor.formatOnSave` in VS Code, or a `BufWritePre` autocmd in Neovim).
+
+Formatting uses the nearest `mix.exs` ancestor of the file being formatted to find the correct `.formatter.exs` — this means it works correctly in monorepos where subprojects may have different formatter configs.
+
+Dexter automatically detects `mix` through mise or asdf to respect project-specific Elixir versions. The detection order is: mise → asdf → login shell → PATH.
+
 ## Index location (.dexter.db)
 
 Dexter creates `.dexter.db` at the root of your project. Where you place it determines what gets indexed.
@@ -303,7 +318,7 @@ Measured on a 55k-file Elixir monorepo (337k definitions, 2.7M references):
 
 ## Why?
 
-Elixir LSP servers (ElixirLS, Lexical, etc.) can struggle with very large monorepos. Ctags works but doesn't understand Elixir module namespacing, so `Foo` often resolves to the wrong module. Dexter sits in between — it's Elixir-aware but doesn't try to be a full LSP. Just fast, correct navigation, docs, and completions.
+Elixir LSP servers (ElixirLS, Lexical, etc.) can struggle with very large monorepos. Ctags works but doesn't understand Elixir module namespacing, so `Foo` often resolves to the wrong module. Dexter sits in between — it's Elixir-aware but stays fast by backing everything with a lightweight SQLite index instead of compiling your project. Navigation, docs, completions, and formatting — without the wait.
 
 ## Development
 

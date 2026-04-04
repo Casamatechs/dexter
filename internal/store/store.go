@@ -425,8 +425,8 @@ type CompletionResult struct {
 }
 
 // SearchModulesBySuffix returns modules whose name ends with the given suffix.
-// For example, "Accounts" matches "MyApp.Accounts" and "DocuSign.Client"
-// matches "MyApp.DocuSign.Client".
+// For example, "Accounts" matches "MyApp.Accounts" and "RandomAPI.Client"
+// matches "MyApp.RandomAPI.Client".
 func (s *Store) SearchModulesBySuffix(segment string) ([]CompletionResult, error) {
 	rows, err := s.db.Query(
 		"SELECT DISTINCT module FROM definitions WHERE (module = ? OR module LIKE ?) AND function = '' AND kind IN ('module', 'defprotocol') ORDER BY module LIMIT 20",
