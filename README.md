@@ -1,6 +1,37 @@
 # Dexter
 
-A fast, full-featured Elixir LSP built for large codebases where other Elixir LSPs are too slow or don't work at all. Dexter backs everything with a local SQLite index and a persistent Elixir process for formatting — no compilation required, no resource exhaustion.
+A fast, full-featured Elixir LSP that works on large codebases and won't eat all of your resources.
+
+## Features
+
+- **Fast indexing** — cold index completes in ~10s on a 50k-file Elixir monorepo, ~93ms on Oban, ~90ms on the Elixir standard library, using an M1 MacBook Pro. After your first index, incremental indexing makes sure that you never have to reindex the whole codebase again.
+- **Go-to-definition** — jump to any module, function, type, or variable definition. Resolves aliases, imports, `defdelegate` chains, `use` injections, and the Elixir stdlib. Handles all definition forms: `def`, `defp`, `defmacro`, `defprotocol`, `defimpl`, `defstruct`, and more
+- **Go-to-references** — find all usages of a function or module across the codebase, including through `import`, `use` chains, and `defdelegate`
+- **Hover documentation** — `@doc`, `@moduledoc`, `@typedoc`, and `@spec` annotations rendered as Markdown when you hover over a symbol
+- **Autocompletion** — modules, functions, types, and variables with full snippet support. Resolves through aliases, imports, `use` injections, and the Elixir stdlib. Works for qualified calls (`MyApp.Repo.|`), bare function calls, and module prefixes
+- **Rename** — rename modules, functions, and variables with automatic file renaming when the convention is followed
+- **No compilation required** — the index is built by parsing source files directly, not by compiling your project. Dexter works immediately on any codebase, even ones that don't compile
+- **Monorepo and umbrella support** — a single index at the repository root covers all apps and shared libraries. Go-to-definition, find references, and rename work cross-project out of the box. Expert, Lexical, and ElixirLS all operate per-project with no cross-app awareness
+- **Format on save** — formats `.ex`, `.exs`, and `.heex` files on save via a persistent Elixir process. Near-instant after the first save. Formatter plugins (Styler, Phoenix.LiveView.HTMLFormatter) are loaded from your project's `_build` — no install needed. Syntax errors are surfaced as diagnostics.
+- **Elixir stdlib indexing** — jump to `Enum`, `String`, `Mix`, and other bundled modules by indexing your local Elixir installation sources
+- **Signature help** — parameter hints as you type function calls
+- **Workspace symbols** — search for any module or function across the entire codebase
+- **Call hierarchy** — navigate incoming and outgoing calls
+- **Code actions** — add missing aliases with a single action
+- **Document symbols** — outline view of all functions and modules in the current file
+- **Document highlight** — highlight all occurrences of the symbol under the cursor
+- **Variable support** — go-to-definition, rename, and completion for local variables via tree-sitter, with correct scoping across `case`, `with`, `for`, and other block constructs
+- **Cursor-position-aware resolution** — hovering on `MyApp.Repo` in `MyApp.Repo.all` shows docs for the module, hovering on `all` shows docs for the function
+- **Delegate following** — `defdelegate fetch(id), to: MyApp.Repo` jumps to `MyApp.Repo.fetch`, respecting `as:` renames
+- **Alias resolution** — `alias MyApp.Handlers.Foo`, `alias MyApp.Handlers.Foo, as: Cool`, `alias MyApp.Handlers.{Foo, Bar}`
+- **Import resolution** — bare function calls resolved through `import` declarations
+- **Type definitions** — `@type` and `@opaque` are indexed for go-to-definition and hover
+- **Folding ranges** — collapse functions and modules in your editor
+- **Monorepo-aware formatting** — walks up from the file to find the nearest `.formatter.exs`, so subprojects with their own formatter configs (including nested `subdirectories:` configs) just work
+- **Local buffer search** — private function calls resolve without leaving the current file
+- **Heredoc awareness** — code examples in `@moduledoc`/`@doc` are skipped
+- **Module nesting** — correctly tracks `end` keywords to attribute functions to the right module
+- **Git branch switch detection** — automatically reindexes when you switch branches
 
 ## Quick start
 
@@ -20,17 +51,17 @@ echo ".dexter.db*" >> .gitignore
 # You can still run it explicitly if you prefer: dexter init ~/code/my-elixir-project
 ```
 
+## Editor setup
+
 ### VS Code / Cursor extension
 
 ```sh
 git clone git@gitlab.com:remote-com/employ-starbase/dexter-vscode.git
 cd dexter-vscode
-make install   # or make install-vscode
+make install   # or `make install-vscode` for VS Code
 ```
 
 You'll need to restart Cursor after installing the new extension.
-
-## Editor setup
 
 ### Neovim (0.11+)
 
@@ -126,36 +157,6 @@ To enable format-on-save, add this to your VS Code settings:
 }
 ```
 
-## Features
-
-- **Autocompletion** — modules, functions, types, and variables with full snippet support. Resolves through aliases, imports, `use` injections, and the Elixir stdlib. Works for qualified calls (`MyApp.Repo.|`), bare function calls, and module prefixes
-- **Elixir stdlib indexing** — jump to `Enum`, `String`, `Mix`, and other bundled modules by indexing your local Elixir installation sources
-- **Hover documentation** — `@doc`, `@moduledoc`, `@typedoc`, and `@spec` annotations rendered as Markdown when you hover over a symbol
-- **Cursor-position-aware resolution** — hovering on `MyApp.Repo` in `MyApp.Repo.all` shows docs for the module, hovering on `all` shows docs for the function
-- **Alias resolution** — `alias MyApp.Handlers.Foo`, `alias MyApp.Handlers.Foo, as: Cool`, `alias MyApp.Handlers.{Foo, Bar}`
-- **Import resolution** — bare function calls resolved through `import` declarations
-- **Delegate following** — `defdelegate fetch(id), to: MyApp.Repo` jumps to `MyApp.Repo.fetch`, respecting `as:` renames
-- **Local buffer search** — private function calls resolve without leaving the current file
-- **All def forms** — `def`, `defp`, `defmacro`, `defmacrop`, `defguard`, `defguardp`, `defdelegate`, `defprotocol`, `defimpl`, `defstruct`, `defexception`
-- **Type definitions** — `@type` and `@opaque` are indexed for go-to-definition and hover
-- **Variable support** — go-to-definition, rename, and completion for local variables via tree-sitter, with correct scoping across `case`, `with`, `for`, and other block constructs
-- **References** — find all usages of a function or module across the codebase, including through `import`, `use` chains, and `defdelegate`
-- **Rename** — rename modules, functions, and variables with automatic file renaming when the convention is followed
-- **Document symbols** — outline view of all functions and modules in the current file
-- **Workspace symbols** — search for any module or function across the entire codebase
-- **Signature help** — parameter hints as you type function calls
-- **Type definition** — jump to `@type` and `@opaque` definitions
-- **Document highlight** — highlight all occurrences of the symbol under the cursor
-- **Call hierarchy** — navigate incoming and outgoing calls
-- **Folding ranges** — collapse functions and modules in your editor
-- **Code actions** — add missing aliases with a single action
-- **Format on save** — formats `.ex`, `.exs`, and `.heex` files on save via a persistent Elixir process. Near-instant after the first save. Formatter plugins (Styler, Phoenix.LiveView.HTMLFormatter) are loaded from your project's `_build` — no install needed. Syntax errors are surfaced as diagnostics.
-- **Monorepo-aware formatting** — walks up from the file to find the nearest `.formatter.exs`, so subprojects with their own formatter configs (including nested `subdirectories:` configs) just work
-- **Heredoc awareness** — code examples in `@moduledoc`/`@doc` are skipped
-- **Module nesting** — correctly tracks `end` keywords to attribute functions to the right module
-- **Git branch detection** — automatically reindexes when you switch branches
-- **Parallel indexing** — uses all CPU cores for initial index
-
 ## CLI usage
 
 The CLI commands are available for scripting and manual use.
@@ -173,7 +174,7 @@ dexter init --force ~/code/my-elixir-project
 dexter init --profile ~/code/my-elixir-project
 ```
 
-Dexter auto-detects your Elixir installation. If it can't find it (e.g. a non-standard install), set:
+Dexter auto-detects your Elixir installation. If it can't find it (e.g. a non-standard install, it's not in your `PATH`, etc.), set:
 
 ```sh
 export DEXTER_ELIXIR_LIB_ROOT="/path/to/elixir/lib"
@@ -198,6 +199,21 @@ dexter lookup --no-follow-delegates MyApp.Accounts fetch
 dexter lookup --strict MyApp.Repo nonexistent
 # => (exit code 1)
 ```
+
+### Find references
+
+```sh
+# Find all usages of a module
+dexter references MyApp.Repo
+# => /path/to/lib/my_app/accounts.ex:12
+# => /path/to/lib/my_app/posts.ex:8
+
+# Find all usages of a specific function
+dexter references MyApp.Repo get
+# => /path/to/lib/my_app/accounts.ex:45
+```
+
+Exits 1 with a message to stderr if no references are found.
 
 ### Keep the index up to date
 
@@ -303,7 +319,7 @@ If the persistent process can't start, dexter falls back to running `mix format`
 
 Dexter creates `.dexter.db` at the root of your project. Where you place it determines what gets indexed.
 
-**Monorepo root (recommended)** — Put the index at the root of your repository, next to `.git`. This indexes everything: all apps, all shared libraries, and all deps. Go-to-definition works across the entire codebase.
+**Monorepo root (recommended if using an Elixir monorepo or umbrella structure)** — Put the index at the root of your repository, next to `.git`. This indexes everything: all apps, all shared libraries, and all deps. Go-to-definition works across the entire codebase.
 
 ```sh
 cd ~/code/my-monorepo   # where .git lives
@@ -347,11 +363,11 @@ Measured on a 55k-file Elixir monorepo (337k definitions, 2.7M references):
 
 ## Why?
 
-ElixirLS and Lexical don't work on large codebases — they eat all resources and still fail. Dexter takes a different approach: back everything with a lightweight SQLite index instead of compiling your project, and use a persistent Elixir process for formatting instead of spawning subprocesses. The result is an LSP that stays fast regardless of codebase size.
+Other Elixir LSPs compile your project to build their understanding of the code. This works on small codebases but falls apart at scale — they exhaust memory, index forever, and still produce stale results. A persistent Elixir process for formatting instead of spawning subprocesses means format-on-save is nearly instantaneous. A SQLite-backed index built from source parsing means lookups are ~10ms regardless of codebase size.
 
 ## Development
 
-Requires Go 1.21+ and Xcode command line tools (for SQLite via CGo).
+Requires Go 1.21+, SQLite, and Elixir.
 
 ```sh
 git clone git@gitlab.com:remote-com/employ-starbase/dexter.git
