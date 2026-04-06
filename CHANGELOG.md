@@ -1,14 +1,34 @@
 # Changelog
 
-## [0.4.1] - 2026-04-01
+## [0.5.0] - 2026-04-04
 
-### Fixed
+### Added
 
-- **Function lookup ordering** — when a name is shared by both a function and a type, the function definition is now returned first
+- **Go-to-references** — `textDocument/references` returns all usages of a module or function across the project, including calls through `__using__`/`import` chains and bare intra-module calls; also finds all bindings and uses of a local variable within its scope
+- **Rename** — `textDocument/rename` + `textDocument/prepareRename` rename modules, functions, and variables project-wide; a module rename also renames all submodules (if needed), updates every alias/call/import/use site, and moves the file to its conventional path
+- **Near-instant format on save** — `textDocument/formatting` formats the current file on save using the nearest `.formatter.exs`, with full support for formatter plugins like [Styler](https://github.com/remoteoss/elixir-styler); format errors are shown as LSP diagnostics so they appear inline. A persistent BEAM process is kept alive per `.formatter.exs`, eliminating VM startup cost so formatting is near-instant; falls back to `mix format` if the persistent process is unavailable
+- **Full workspace symbol search** — `workspace/symbol` fuzzy-searches all indexed symbols by name across the whole project (Cmd-T in VS Code)
+- **Go-to-declaration** — `textDocument/declaration` jumps to the `@callback` (or `@macrocallback`) definition for any `@impl`-annotated function; walks `@behaviour` declarations and `use`-chains (including dynamic `use unquote(mod)` patterns resolved via keyword opts) to find the right behaviour module, with a global index fallback for `@impl true`
+- **Go-to-implementation** — `textDocument/implementation` jumps from a `@callback` definition to every module that implements it via `@behaviour` or `use`
+- **Document symbols** — `textDocument/documentSymbol` returns a fully hierarchical outline of modules, submodules, functions, macros, types, structs, and protocols in the current file
+- **Signature help** — `textDocument/signatureHelp` shows function parameter hints (triggered on `(` and `,`), including which argument is active and parameter names extracted from the definition
+- **Type definition** — `textDocument/typeDefinition` jumps to the `@type` / `@opaque` declaration for the type under the cursor
+- **Folding ranges** — `textDocument/foldingRange` reports foldable regions for `do...end` blocks and heredocs
+- **Call hierarchy** — `textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`, and `callHierarchy/outgoingCalls` show callers and callees of any function
+- **Code actions** — `textDocument/codeAction` offers an "Add alias" quick fix for any unaliased module reference; searches the index when the full module name isn't used, and suggests up to five candidates
+- **Document highlight** — `textDocument/documentHighlight` highlights all occurrences of the symbol under the cursor; uses scope-aware tree-sitter variable tracking for local variables, and falls back to token matching for module/function names
 
 ### Changed
 
-- **CLI description** — updated tagline
+- **Arity-aware completions** — function completions now emit one entry per callable arity (accounting for default parameters too), so `fun/2` and `fun/3` appear as distinct items
+- **Cold indexing performance** — initial indexing is significantly more optimized; `dexter init --profile` added for detailed profiling during startup
+- **Go-to-definition and references via use-chain with opts** — dynamic `import unquote(mod)` expressions inside `__using__/1` blocks are now resolved using the keyword opts passed at the `use` call site (e.g. `use MyLib, mod: Mox`)
+
+### Fixed
+
+- **Go-to-definition for nested modules** — a `defmodule Inner do` inside `defmodule Outer do` now creates an implicit alias `Inner → Outer.Inner` within `Outer`'s scope, so qualified calls like `Inner.fun()` resolve correctly
+- **Incomplete submodule completions** — submodule segments were missing from completions on large codebases because the raw module row cap was hit before client-side deduplication into immediate segments; the query now uses `SELECT DISTINCT` on segments so the cap applies after dedup
+- **Function lookup ordering** — when a name is shared by both a function and a type, the function definition is now returned first
 
 ## [0.4.0] - 2026-04-01
 
