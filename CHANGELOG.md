@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.2] - 2026-04-07
+
+### Added
+
+- **Completion snippets with parameter names** — function completions now insert tab-stop snippets with real parameter names extracted from the definition during indexing (e.g. `fun(user, opts)` instead of `fun(arg1, arg2)`); falls back to positional names for complex patterns like destructured maps
+
+### Fixed
+
+- **Completion with pipes** — pipe context (`|>`) detection omits the first argument from the snippet since it is already supplied by the pipe
+- **Elixir/OTP version mismatch** — stdlib resolution now calls `mise where elixir` / `asdf where elixir` with the project root, so Dexter picks up the version pinned in `.tool-versions` / `mise.toml` rather than the globally latest install; eliminates the "requires a more recent Erlang/OTP" crash when a project pins an Elixir build that targets a specific OTP; a one-time editor error notification is shown if the mismatch is still detected at runtime
+
 ## [0.5.1] - 2026-04-06
 
 ### Fixed
