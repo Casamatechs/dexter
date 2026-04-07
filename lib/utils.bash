@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-GL_REPO=git@github.com:remoteoss/dexterdexter
+GH_REPO=git@github.com:remoteoss/dexterdexter
 TOOL_NAME="dexter"
 TOOL_TEST="dexter --help"
 
@@ -17,9 +17,9 @@ sort_versions() {
 }
 
 list_all_versions() {
-	git ls-remote --tags --refs "$GL_REPO" |
+	git ls-remote --tags --refs "$GH_REPO" |
 		grep -o 'refs/tags/.*' | cut -d/ -f3- |
-		sed 's/^v//' || fail "Could not list versions. Ensure you have added your ssh key to gitlab."
+		sed 's/^v//' || fail "Could not list versions. Ensure you have added your ssh key to GitHub."
 }
 
 download_release() {
@@ -27,9 +27,9 @@ download_release() {
 	local download_path="$2"
 
 	echo "* Cloning $TOOL_NAME v$version..."
-	git clone --depth 1 --branch "v${version}" "${GL_REPO}.git" "$download_path" 2>/dev/null ||
-		git clone --depth 1 --branch "${version}" "${GL_REPO}.git" "$download_path" ||
-		fail "Could not clone $GL_REPO at version $version"
+	git clone --depth 1 --branch "v${version}" "${GH_REPO}.git" "$download_path" 2>/dev/null ||
+		git clone --depth 1 --branch "${version}" "${GH_REPO}.git" "$download_path" ||
+		fail "Could not clone $GH_REPO at version $version"
 }
 
 install_version() {

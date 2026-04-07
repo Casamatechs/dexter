@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.5.2)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+          - runner: macos-13
+            goos: darwin
+            goarch: amd64
+    runs-on: ${{ matrix.runner }}
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: |
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -o dexter ./cmd/
+      - name: Package
+        run: |
+          arch=${{ matrix.goarch }}
+          if [ "$arch" = "amd64" ]; then arch="x86_64"; fi
+          os=$(echo "${{ matrix.goos }}" | sed 's/./\U&/')
+          name="dexter_${os}_${arch}"
+          mkdir "$name"
+          cp dexter "$name/"
+          tar czf "${name}.tar.gz" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dexter-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: "*.tar.gz"
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: dexter-*
+          merge-multiple: true
+      - name: Generate checksums
+        run: cd artifacts && sha256sum *.tar.gz > checksums.txt
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ env.RELEASE_TAG }}" \
+            --title "${{ env.RELEASE_TAG }}" \
+            --generate-notes \
+            artifacts/*.tar.gz \
+            artifacts/checksums.txt

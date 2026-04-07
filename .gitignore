@@ -8,3 +8,5 @@ dexter
 .DS_Store
 
 .claude
+# Added by goreleaser init:
+dist/
