@@ -63,7 +63,7 @@
 
 - **File watching** — the LSP server now watches for external file changes (e.g. branch switches, `git pull`) and automatically refreshes the index, beyond the existing Git HEAD polling
 - **Full reindex on version bumps** — when a new version of Dexter requires schema changes, the index is rebuilt entirely on startup instead of attempting an incremental update
-- **CI pipeline** — added GitLab CI with linting and tests
+- **CI pipeline** — added GitHub Actions CI with linting and tests
 
 ## [0.3.0] - 2026-03-31
 

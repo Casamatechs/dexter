@@ -12,7 +12,7 @@ make lint   # run after completing a set of changes
 
 Install `golangci-lint` if needed:
 ```sh
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.9.0
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
 ```
 
 ## Conventions
@@ -20,8 +20,12 @@ go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.9.0
 - Our guiding principles for all code written are: We want maximum performance and speed, but without sacrificing
   correctness of results. It's okay to sacrifice some readability in the name of performance, but be mindful of the
   tradeoffs.
-- Always use fake/generic module and function names in tests (e.g. `MyApp.Accounts`, `SharedLib.Worker`) — never use
+- When fixing reported bugs, write the regression test first, verify the failure, and then write the fix.
+- When given real code causing bugs, use fake/generic module and function names in tests (e.g. `MyApp.Accounts`, `SharedLib.Worker`) — never use
   real names from the user's codebase, even for regression tests
+- When writing code that affects the in-document runtime parsing that is similar to the index parsing (or vice versa),
+  see if the code can be unified to reduce deduplication. But we should never do this at the cost of performance.
+  Indexing must be kept fast no matter what.
 - Keep the CLI commands (`init`, `reindex`, `lookup`) working independently of the LSP server
 - Parser tests should cover real-world Elixir patterns from large codebases
 - Version strings (`Version` and `IndexVersion`) live in `internal/version/version.go`

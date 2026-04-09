@@ -8,3 +8,4 @@ dexter
 .DS_Store
 
 .claude
+dist/

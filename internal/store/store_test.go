@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/parser"
+	"github.com/remoteoss/dexter/internal/parser"
 )
 
 func setupTestStore(t *testing.T) (*Store, string) {

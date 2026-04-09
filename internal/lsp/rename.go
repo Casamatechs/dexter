@@ -7,7 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/parser"
+	"github.com/remoteoss/dexter/internal/parser"
 )
 
 // findTokenColumn returns the start column (0-based) of the first whole-token

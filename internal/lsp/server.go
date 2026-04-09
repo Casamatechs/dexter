@@ -22,11 +22,11 @@ import (
 	"go.lsp.dev/uri"
 	"go.uber.org/zap"
 
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/parser"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/stdlib"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/store"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/treesitter"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/version"
+	"github.com/remoteoss/dexter/internal/parser"
+	"github.com/remoteoss/dexter/internal/stdlib"
+	"github.com/remoteoss/dexter/internal/store"
+	"github.com/remoteoss/dexter/internal/treesitter"
+	"github.com/remoteoss/dexter/internal/version"
 )
 
 // optBinding represents a dynamic import/use in __using__ driven by opts.
@@ -77,6 +77,8 @@ type Server struct {
 
 	reindexing          sync.Mutex // serializes concurrent backgroundReindex calls
 	notifiedOTPMismatch sync.Once  // prevents repeated OTP mismatch warnings
+
+	backgroundWork sync.WaitGroup // tracks background reindex goroutines so the store isn't closed while they're running
 }
 
 func (s *Server) debugf(format string, args ...interface{}) {
@@ -132,7 +134,9 @@ func Serve(in io.Reader, out io.Writer, s *store.Store, projectRoot string) erro
 // backgroundReindex runs in the background. If the index is empty it does a
 // full init, otherwise it does an incremental mtime-based update.
 func (s *Server) backgroundReindex() {
+	s.backgroundWork.Add(1)
 	go func() {
+		defer s.backgroundWork.Done()
 		if !s.reindexing.TryLock() {
 			return
 		}
@@ -3899,7 +3903,9 @@ func (mr *moduleRename) reindex(fileCache map[string]moduleFileInfo, movedFiles 
 		}
 	}
 
+	mr.server.backgroundWork.Add(1)
 	go func() {
+		defer mr.server.backgroundWork.Done()
 		mr.server.reindexPaths(reindexPaths)
 		for _, r := range openReindexes {
 			defs, refs, err := parser.ParseText(r.path, r.text)
@@ -4038,7 +4044,9 @@ func (s *Server) buildTextEdits(sites []renameSite, oldToken, newToken string) *
 	}
 	wg.Wait()
 
+	s.backgroundWork.Add(1)
 	go func() {
+		defer s.backgroundWork.Done()
 		s.reindexPaths(reindexPaths)
 		for _, r := range openReindexes {
 			defs, refs, err := parser.ParseText(r.path, r.text)

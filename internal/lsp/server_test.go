@@ -13,9 +13,9 @@ import (
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/parser"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/stdlib"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/store"
+	"github.com/remoteoss/dexter/internal/parser"
+	"github.com/remoteoss/dexter/internal/stdlib"
+	"github.com/remoteoss/dexter/internal/store"
 )
 
 func setupTestServer(t *testing.T) (*Server, func()) {
@@ -36,6 +36,7 @@ func setupTestServer(t *testing.T) (*Server, func()) {
 	}
 
 	return server, func() {
+		server.backgroundWork.Wait()
 		if err := s.Close(); err != nil {
 			t.Errorf("failed to close store: %v", err)
 		}

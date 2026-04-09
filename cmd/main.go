@@ -11,12 +11,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	dexter_lsp "github.com/remoteoss/dexter/internal/lsp"
+	"github.com/remoteoss/dexter/internal/parser"
+	"github.com/remoteoss/dexter/internal/stdlib"
+	"github.com/remoteoss/dexter/internal/store"
+	"github.com/remoteoss/dexter/internal/version"
 	"github.com/spf13/cobra"
-	dexter_lsp "gitlab.com/remote-com/employ-starbase/dexter/internal/lsp"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/parser"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/stdlib"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/store"
-	"gitlab.com/remote-com/employ-starbase/dexter/internal/version"
 )
 
 func main() {
