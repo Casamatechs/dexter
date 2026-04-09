@@ -33,10 +33,6 @@ jobs:
             goos: darwin
             goarch: arm64
             platform: Darwin_arm64
-          - runner: macos-13
-            goos: darwin
-            goarch: amd64
-            platform: Darwin_x86_64
     runs-on: ${{ matrix.runner }}
     env:
       CGO_ENABLED: "1"
