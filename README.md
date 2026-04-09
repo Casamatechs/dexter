@@ -2,7 +2,7 @@
 
 <img src="dexter-logo.png" width="200" height="200" alt="Dexter logo" />
 
-A fast, full-featured Elixir LSP optimized for large Elixir codebases — without eating all of your resources.
+A fast, full-featured Elixir LSP optimized for large Elixir codebases.
 
 ## Table of contents
 
