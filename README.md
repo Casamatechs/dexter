@@ -2,50 +2,104 @@
 
 <img src="dexter-logo.png" width="200" height="200" alt="Dexter logo" />
 
-A fast, full-featured Elixir LSP that works on large codebases and won't eat all of your resources.
+A fast, full-featured Elixir LSP optimized for large Elixir codebases — without eating all of your resources.
+
+## Table of contents
+
+- [Features](#features)
+- [Why build another LSP?](#why-build-another-lsp)
+- [Performance](#performance)
+- [Quick start](#quick-start)
+- [Editor setup](#editor-setup)
+  - [VS Code / Cursor](#vs-code--cursor)
+  - [Neovim (0.11+)](#neovim-011)
+  - [Neovim (with nvim-lspconfig — \< 0.11)](#neovim-with-nvim-lspconfig---011)
+  - [Zed](#zed)
+- [CLI usage](#cli-usage)
+  - [Index a project](#index-a-project)
+  - [Look up definitions](#look-up-definitions)
+  - [Find references](#find-references)
+  - [Reindexing files manually](#reindexing-files-manually)
+- [Hover documentation](#hover-documentation)
+  - [Cursor-position-aware resolution](#cursor-position-aware-resolution)
+- [Rename](#rename)
+  - [Modules](#modules)
+  - [Functions](#functions)
+  - [Variables](#variables)
+- [Lightning-fast formatting](#lightning-fast-formatting)
+- [LSP options](#lsp-options)
+- [Index database location (.dexter.db)](#index-database-location-dexterdb)
+- [Debugging](#debugging)
+- [Development (building from source)](#development-building-from-source)
+- [Releasing](#releasing)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
-- **Fast indexing** — cold index completes in ~10s on a 50k-file Elixir monorepo, ~93ms on Oban, ~90ms on the Elixir standard library, using an M1 MacBook Pro. After your first index, incremental indexing makes sure that you never have to reindex the whole codebase again.
-- **Go-to-definition** — jump to any module, function, type, or variable definition. Resolves aliases, imports, `defdelegate` chains, `use` injections, and the Elixir stdlib. Handles all definition forms: `def`, `defp`, `defmacro`, `defprotocol`, `defimpl`, `defstruct`, and more
-- **Go-to-references** — find all usages of a function or module across the codebase, including through `import`, `use` chains, and `defdelegate`
-- **Hover documentation** — `@doc`, `@moduledoc`, `@typedoc`, and `@spec` annotations rendered as Markdown when you hover over a symbol
-- **Autocompletion** — modules, functions, types, and variables with full snippet support. Resolves through aliases, imports, `use` injections, and the Elixir stdlib. Works for qualified calls (`MyApp.Repo.|`), bare function calls, and module prefixes
-- **Rename** — rename modules, functions, and variables with automatic file renaming when the convention is followed
-- **No compilation required** — the index is built by parsing source files directly, not by compiling your project. Dexter works immediately on any codebase, even ones that don't compile
-- **Monorepo and umbrella support** — a single index at the repository root covers all apps and shared libraries. Go-to-definition, find references, and rename work cross-project out of the box. Expert, Lexical, and ElixirLS all operate per-project with no cross-app awareness
+- **Fast indexing** — cold index completes in ~11s on a 57k-file Elixir monorepo, ~93ms on Oban, ~90ms on the Elixir standard library (measured on an M1 MacBook Pro). After your first index, incremental indexing makes sure that you never have to reindex the whole codebase again.
+- **Go-to-definition** — jump to any module, function, type, or variable definition. Resolves aliases, imports, `defdelegate` chains, `use` injections, and the Elixir stdlib. Handles all definition forms: `def`, `defp`, `defmacro`, `defprotocol`, `defimpl`, `defstruct`, and more.
+- **Go-to-references** — find all usages of a function or module across the codebase, including through `import`, `use` chains, and `defdelegate`.
+- **Hover documentation** — `@doc`, `@moduledoc`, `@typedoc`, and `@spec` annotations rendered as Markdown when you hover over a symbol.
+- **Autocompletion** — modules, functions, types, and variables with full snippet support. Resolves through aliases, imports, `use` injections, and the Elixir stdlib. Works for qualified calls (`MyApp.Repo.|`), bare function calls, and module prefixes.
+- **Rename** — rename modules, functions, and variables with automatic file renaming when the convention is followed.
+- **No compilation required** — the index is built by parsing source files directly, not by compiling your project. Dexter works immediately on any codebase, even ones that don't compile.
+- **Monorepo and umbrella support** — a single index at the repository root covers all apps and shared libraries. Go-to-definition, find references, and rename work cross-project out of the box.
 - **Format on save** — formats `.ex`, `.exs`, and `.heex` files on save via a persistent Elixir process. Near-instant after the first save. Formatter plugins (Styler, Phoenix.LiveView.HTMLFormatter) are loaded from your project's `_build` — no install needed. Syntax errors are surfaced as diagnostics.
-- **Elixir stdlib indexing** — jump to `Enum`, `String`, `Mix`, and other bundled modules by indexing your local Elixir installation sources
-- **Signature help** — parameter hints as you type function calls
-- **Workspace symbols** — search for any module or function across the entire codebase
-- **Call hierarchy** — navigate incoming and outgoing calls
-- **Code actions** — add missing aliases with a single action
-- **Document symbols** — outline view of all functions and modules in the current file
-- **Document highlight** — highlight all occurrences of the symbol under the cursor
-- **Variable support** — go-to-definition, rename, and completion for local variables via tree-sitter, with correct scoping across `case`, `with`, `for`, and other block constructs
-- **Cursor-position-aware resolution** — hovering on `MyApp.Repo` in `MyApp.Repo.all` shows docs for the module, hovering on `all` shows docs for the function
-- **Delegate following** — `defdelegate fetch(id), to: MyApp.Repo` jumps to `MyApp.Repo.fetch`, respecting `as:` renames
-- **Alias resolution** — `alias MyApp.Handlers.Foo`, `alias MyApp.Handlers.Foo, as: Cool`, `alias MyApp.Handlers.{Foo, Bar}`
-- **Import resolution** — bare function calls resolved through `import` declarations
-- **Type definitions** — `@type` and `@opaque` are indexed for go-to-definition and hover
-- **Folding ranges** — collapse functions and modules in your editor
-- **Monorepo-aware formatting** — walks up from the file to find the nearest `.formatter.exs`, so subprojects with their own formatter configs (including nested `subdirectories:` configs) just work
-- **Local buffer search** — private function calls resolve without leaving the current file
-- **Heredoc awareness** — code examples in `@moduledoc`/`@doc` are skipped
-- **Module nesting** — correctly tracks `end` keywords to attribute functions to the right module
-- **Git branch switch detection** — automatically reindexes when you switch branches
+- **Elixir stdlib indexing** — jump to `Enum`, `String`, `Mix`, and other bundled modules by indexing your local Elixir installation sources.
+- **Signature help** — parameter hints as you type function calls.
+- **Workspace symbols** — search for any module or function across the entire codebase.
+- **Call hierarchy** — navigate incoming and outgoing calls.
+- **Code actions** — add missing aliases with a single action.
+- **Document symbols** — outline view of all functions and modules in the current file.
+- **Document highlight** — highlight all occurrences of the symbol under the cursor.
+- **Variable support** — go-to-definition, rename, and completion for local variables via tree-sitter, with correct scoping across `case`, `with`, `for`, and other block constructs.
+- **Git branch switch detection** — automatically reindexes when you switch branches.
+
+<details>
+<summary>More features</summary>
+
+- **Delegate following** — `defdelegate fetch(id), to: MyApp.Repo` jumps to `MyApp.Repo.fetch`, respecting `as:` renames.
+- **Alias resolution** — `alias MyApp.Handlers.Foo`, `alias MyApp.Handlers.Foo, as: Cool`, `alias MyApp.Handlers.{Foo, Bar}`.
+- **Import resolution** — bare function calls resolved through `import` declarations.
+- **Type definitions** — `@type` and `@opaque` are indexed for go-to-definition and hover.
+- **Folding ranges** — collapse functions and modules in your editor.
+- **Monorepo-aware formatting** — walks up from the file to find the nearest `.formatter.exs`, so subprojects with their own formatter configs (including nested `subdirectories:` configs) just work.
+- **Heredoc awareness** — code examples in `@moduledoc`/`@doc` are skipped.
+- **Module nesting** — correctly tracks `end` keywords to attribute functions to the right module.
+
+</details>
+
+## Why build another LSP?
+
+Remote has one of the largest Elixir codebases in existence (at least that we're aware of), now around 57k files. As our codebase has grown, we've had more and more struggles with language servers. We had found that they simply couldn't keep up with such a large codebase. On large codebases like ours, existing LSPs take hours to index, and even after indexing, operations like go-to-definition and go-to-references are still slow. On top of that, changing branches means a whole new round of indexing. The result has been frustration. Many of us on the engineering team had all but given up on the idea of ever having a working LSP.
+
+Dexter is designed with speed and efficiency as core guiding principles. It takes a different approach from other Elixir LSPs, parsing source files directly as text and storing everything in SQLite so lookups are fast. The speed difference is noticeable on codebases of all sizes. Although Dexter isn't fully aware of the compiled state of the code like compilation-based LSPs, some clever parsing and deferring complex macro following to runtime allow it to get very close. In fact, you probably wouldn't even notice this limitation if you weren't reading this.
+
+## Performance
+
+Measured on a 57k-file Elixir monorepo (330k definitions, 2.7M references) on a 32GB M1 MacBook Pro:
+
+| Operation | Time |
+|-----------|------|
+| Full init | ~11s |
+| Lookup (LSP or CLI) | ~10ms |
+| Single file reindex (on save) | ~10ms |
+| Full reindex (no changes) | ~2s |
+| Format on save | <1ms |
 
 ## Quick start
 
+### Install via mise (recommended)
+
 ```sh
 # 1. Install dependencies (if you don't already have them)
-brew install sqlite
-mise use -g go@1.26.1
+brew install sqlite  # or your preferred package manager
 
-# 2. Install dexter (requires a tagged release to exist)
-mise plugin add dexter git@github.com:remoteoss/dexter.git && mise use -g dexter@latest
+# 2. Install dexter (builds from source if no prebuilt binary is available for your platform)
+mise plugin add dexter https://github.com/remoteoss/dexter.git && mise use -g dexter@latest
 
-# 3. Add .dexter.db to your global .gitignore
+# 3. Add .dexter.db to your .gitignore
 echo ".dexter.db*" >> .gitignore
 
 # 4. Configure your editor (see below)
@@ -53,17 +107,48 @@ echo ".dexter.db*" >> .gitignore
 # You can still run it explicitly if you prefer: dexter init ~/code/my-elixir-project
 ```
 
+You can also [build from source](#development-building-from-source) directly.
+
 ## Editor setup
 
-### VS Code / Cursor extension
+Dexter works with any editor that supports the Language Server Protocol. Below are setup instructions for the most common ones — if your editor isn't listed, point it at `dexter lsp` over stdio.
+
+### VS Code / Cursor
+
+Install the [dexter-vscode](https://github.com/remoteoss/dexter-vscode) extension:
 
 ```sh
-git clone git@github.com:remoteoss/dexter-vscode.git
+git clone https://github.com/remoteoss/dexter-vscode.git
 cd dexter-vscode
-make install   # or `make install-vscode` for VS Code
+make install   # for Cursor, or make install-vscode for VS Code
 ```
 
-You'll need to restart Cursor after installing the new extension.
+You'll need to restart your editor after installing.
+
+If you installed via Mise or ASDF, you're all done!
+
+But if Dexter is not on your `PATH`, set the binary path in your editor settings:
+
+```json
+{
+  "dexter.binary": "/Users/you/.local/share/mise/shims/dexter"
+}
+```
+
+To enable format-on-save, update your VS Code settings:
+
+```json
+// global in your editor
+{
+  "editor.formatOnSave": true,
+}
+
+// or, for Elixir specifically
+{
+  "[elixir]": { "editor.formatOnSave": true },
+  "[phoenix-heex]": { "editor.formatOnSave": true }
+}
+```
 
 ### Neovim (0.11+)
 
@@ -94,7 +179,7 @@ vim.keymap.set("n", "<leader>va", function()
 end)
 ```
 
-### Neovim (with nvim-lspconfig - NeoVim < 0.11)
+### Neovim (with nvim-lspconfig — < 0.11)
 
 ```lua
 local lspconfig = require("lspconfig")
@@ -102,7 +187,7 @@ local configs = require("lspconfig.configs")
 
 configs.dexter = {
   default_config = {
-    cmd = { "dexter", "lsp" },
+    cmd = { "dexter", "lsp" }, -- update this if you don't have Dexter in your PATH
     filetypes = { "elixir", "eelixir", "heex" },
     root_dir = lspconfig.util.root_pattern(".dexter.db", "mix.exs", ".git"),
   },
@@ -115,7 +200,7 @@ lspconfig.dexter.setup({})
 
 Install the [dexter-zed](https://github.com/remoteoss/dexter-zed) extension:
 
-1. Clone the extension: `git clone git@github.com:remoteoss/dexter-zed.git`
+1. Clone the extension: `git clone https://github.com/remoteoss/dexter-zed.git`
 2. In Zed, open the command palette (`Cmd+Shift+P`) and run **"zed: install dev extension"**
 3. Select the `dexter-zed/` directory
 
@@ -126,36 +211,11 @@ Configure the binary path in Zed's `settings.json`:
   "lsp": {
     "dexter": {
       "binary": {
-        "path": "/Users/you/.local/share/mise/shims/dexter",
+        "path": "/Users/you/.local/share/mise/shims/dexter", // or wherever `which dexter` points to
         "arguments": ["lsp"],
       }
     }
   }
-}
-```
-
-### Cursor/VSCode
-
-Install the [dexter-vscode](https://github.com/remoteoss/dexter-vscode) extension, then optionally set the binary path if dexter is not on your PATH:
-
-```sh
-git clone git@github.com:remoteoss/dexter-vscode.git
-cd dexter-vscode
-make install   # for Cursor, or make install-vscode for VSCode
-```
-
-```json
-{
-  "dexter.binary": "/Users/you/.local/share/mise/shims/dexter"
-}
-```
-
-To enable format-on-save, add this to your VS Code settings:
-
-```json
-{
-  "[elixir]": { "editor.formatOnSave": true },
-  "[phoenix-heex]": { "editor.formatOnSave": true }
 }
 ```
 
@@ -217,7 +277,9 @@ dexter references MyApp.Repo get
 
 Exits 1 with a message to stderr if no references are found.
 
-### Keep the index up to date
+### Reindexing files manually
+
+The LSP does this for you automatically, but if for some reason you need to, you can reindex files manually via the CLI.
 
 ```sh
 # Re-index a single file (~10ms)
@@ -228,9 +290,11 @@ dexter reindex ~/code/my-elixir-project
 ```
 
 When running as an LSP server, dexter automatically:
+
 - Reindexes files on save (`textDocument/didSave`)
 - Runs an incremental reindex on startup
 - Watches `.git/HEAD` for branch switches and reindexes when detected
+- Periodically reindexes every 30 seconds
 
 ## Hover documentation
 
@@ -239,10 +303,10 @@ Dexter serves hover docs (`textDocument/hover`) for functions, modules, and type
 The hover response shows the function signature (with `@spec` if present), followed by the doc string:
 
 ```
-defp do_something(arg1, arg2)
-@spec do_something(binary(), map()) :: {:ok, map()} | {:error, term()}
+def fetch_user(id, opts)
+@spec fetch_user(binary(), keyword()) :: {:ok, User.t()} | {:error, term()}
 
-Does something with arg1 and arg2.
+Fetches a user by ID. Options are passed to the underlying query.
 ```
 
 ### Cursor-position-aware resolution
@@ -257,7 +321,7 @@ Dexter resolves hover (and go-to-definition) based on which segment of a dotted 
 
 ## Rename
 
-Dexter supports `textDocument/rename` (F2 in most editors) for three kinds of symbols:
+Dexter supports renaming modules, functions, and variables across the codebase via `textDocument/rename` (F2 in most editors).
 
 ### Modules
 
@@ -269,7 +333,7 @@ Place your cursor on any segment of a module name and invoke rename. Dexter high
 - All call sites
 - All submodules (renaming `MyApp.Foo` also renames `MyApp.Foo.Bar`, `MyApp.Foo.Baz`, etc.)
 
-**File renaming:** If the source file follows the Elixir naming convention (module `MyApp.SomeRepo` → file `some_repo.ex`), dexter renames the file alongside the module. For submodules, the containing directory segment is also renamed to match (e.g., renaming `MyApp.Companies` to `MyApp.Clients` moves `lib/companies/services/do_something.ex` → `lib/clients/services/do_something.ex`). After the rename, dexter opens the new file automatically if your editor supports `window/showDocument`.
+**File renaming after a module rename:** If the source file follows the Elixir naming convention (module `MyApp.SomeRepo` → file `some_repo.ex`), dexter renames the file alongside the module. For submodules, the containing directory segment is also renamed to match (e.g., renaming `MyApp.Companies` to `MyApp.Clients` moves `lib/companies/services/do_something.ex` → `lib/clients/services/do_something.ex`). After the rename, dexter opens the new file automatically if your editor supports `window/showDocument`.
 
 **When path renaming won't happen:** If the file name doesn't match the snake_case form of the module's last segment — for example, a file named `my_custom_name.ex` that defines `MyModule.SomeRepo` — the file stays in place and only the contents are updated.
 
@@ -293,15 +357,7 @@ enclosing function scope and renames them in a single edit. This is file-local o
 
 Go-to-definition also works for variables — it jumps to the first occurrence (pattern match or assignment) in scope.
 
-## LSP options
-
-Dexter reads `initializationOptions` from your editor configuration:
-
-- **`followDelegates`** (boolean, default: `true`): follow `defdelegate` targets on lookup.
-- **`stdlibPath`** (string): override the Elixir stdlib directory to index. Defaults to auto-detection; use this if your install is non-standard.
-- **`debug`** (boolean, default: `false`): enable verbose logging to stderr. Logs timing and resolution details for every definition, hover, references, and rename request. Can also be enabled via the `DEXTER_DEBUG=true` environment variable.
-
-## Lightning-fast Formatting
+## Lightning-fast formatting
 
 Dexter formats files on save via `textDocument/willSaveWaitUntil` using a persistent Elixir process per `.formatter.exs`. This persistent formatter server starts once when you open the first file in a project under a given `.formatter.exs`, so formatting is near-instant.
 
@@ -317,9 +373,19 @@ If the persistent process can't start, dexter falls back to running `mix format`
 
 **Elixir detection:** The `mix` and `elixir` binaries are derived from the same Elixir install used for stdlib detection, so the correct version is always used regardless of which tool manager you use (mise, asdf, etc.).
 
-## Index location (.dexter.db)
+## LSP options
 
-Dexter creates `.dexter.db` at the root of your project. Where you place it determines what gets indexed.
+Dexter reads `initializationOptions` from your editor configuration:
+
+- **`followDelegates`** (boolean, default: `true`): follow `defdelegate` targets on lookup.
+- **`stdlibPath`** (string): override the Elixir stdlib directory to index. Defaults to auto-detection; use this if your install is non-standard.
+- **`debug`** (boolean, default: `false`): enable verbose logging to stderr. Logs timing and resolution details for every definition, hover, references, and rename request. Can also be enabled via the `DEXTER_DEBUG=true` environment variable.
+
+## Index database location (.dexter.db)
+
+Dexter creates `.dexter.db` at the root of your project when you start the LSP for the first time. But if you prefer, you can run `dexter init` yourself in the root of your project. Where you place it determines what gets indexed.
+
+When the LSP server starts, it walks up from the project root looking for `.dexter.db`, preferring `.git` as the anchor point. This means if you initialised from the monorepo root, the server will find the right database even when Neovim's `rootUri` points to a sub-app (e.g. because `mix.exs` is there).
 
 **Monorepo root (recommended if using an Elixir monorepo or umbrella structure)** — Put the index at the root of your repository, next to `.git`. This indexes everything: all apps, all shared libraries, and all deps. Go-to-definition works across the entire codebase.
 
@@ -335,48 +401,38 @@ cd ~/code/my-monorepo/apps/my_app
 dexter init .
 ```
 
-When the LSP server starts, it walks up from the project root looking for `.dexter.db`, preferring `.git` as the anchor point. This means if you initialised from the monorepo root, the server will find the right database even when Neovim's `rootUri` points to a sub-app (e.g. because `mix.exs` is there).
+## Debugging
 
-If no `.dexter.db` exists anywhere, the LSP server builds the index automatically on first startup.
+If something isn't working as expected, start by forcing a full reindex to rule out a stale/corrupted index. It's
+unlikely that this is actually the problem, but it's better to have a clean slate just to be sure.
 
-## How it works
+```sh
+dexter init --force ~/code/my-elixir-project
+```
 
-1. **Parsing** — `.ex`/`.exs` files are scanned line-by-line with regex for definition declarations. The parser tracks module nesting, heredoc boundaries, and aliases for `defdelegate` resolution.
+If the issue persists, enable debug mode to get verbose logs. You can do this in two ways:
 
-2. **Storage** — Definitions are stored in SQLite (`.dexter.db`) with indexes on module name and module+function for fast lookups.
+1. Set the `debug` option in your editor's LSP `initializationOptions` (see [LSP options](#lsp-options))
+2. Or set the `DEXTER_DEBUG=true` environment variable before launching your editor
 
-3. **LSP server** — `dexter lsp` speaks JSON-RPC over stdio. On `textDocument/definition`, it parses the cursor context, resolves aliases and imports from the open buffer, and queries the index.
+Debug mode logs timing and resolution details for every definition, hover, references, and rename request to stderr. In Neovim you can usually view these at `~/.local/state/nvim/lsp.log`. In VS Code, you can see them in Output > Dexter.
 
-4. **Incremental updates** — File mtimes are tracked. Reindex only re-parses files that changed.
+When [filing an issue](https://github.com/remoteoss/dexter/issues/new), please include:
+- Your Dexter version (`dexter --version`)
+- Your Elixir version (`elixir --version`)
+- The debug logs from the failing operation
+- A minimal code snippet that reproduces the issue, if possible
 
-5. **Persistent formatter** — A long-running Elixir process per `.formatter.exs` handles formatting via a binary protocol. Plugins are loaded from `_build` at startup. The process restarts automatically when `.formatter.exs` changes.
-
-## Performance
-
-Measured on a 55k-file Elixir monorepo (337k definitions, 2.7M references):
-
-| Operation | Time |
-|-----------|------|
-| Full init | ~11s |
-| Lookup (LSP or CLI) | ~10ms |
-| Single file reindex (on save) | ~10ms |
-| Full reindex (no changes) | ~2s |
-| Format on save | <1ms |
-
-## Why?
-
-Other Elixir LSPs compile your project to build their understanding of the code. This works on small codebases but falls apart at scale — they exhaust memory, index forever, and still produce stale results. A persistent Elixir process for formatting instead of spawning subprocesses means format-on-save is nearly instantaneous. A SQLite-backed index built from source parsing means lookups are ~10ms regardless of codebase size.
-
-## Development
+## Development (building from source)
 
 Requires Go 1.21+, SQLite, and Elixir.
 
 ```sh
-git clone git@github.com:remoteoss/dexter.git
+git clone https://github.com/remoteoss/dexter.git
 cd dexter
-mise install
-make build
-make test
+mise install    # install dependencies
+make build      # to build from source
+make test       # to test
 ```
 
 ## Releasing
@@ -397,6 +453,14 @@ This updates the version in `internal/version/version.go` on a release branch. A
 mise plugin update dexter && mise install dexter@latest
 ```
 
-The plugin update step is required to pick up newly tagged releases — without it, `mise install dexter@latest` will resolve against a stale list.
+The plugin update step is required to pick up newly tagged releases. Without it, `mise install dexter@latest` will resolve against a stale list.
 
 If the release changes how Elixir files are parsed or what gets stored in the index (e.g. a new definition kind, a change to delegate resolution), also bump `IndexVersion` in `internal/version/version.go`. Dexter will automatically rebuild the index when users upgrade to a binary with a higher `IndexVersion` — no manual `dexter init --force` required.
+
+## Contributing
+
+Dexter is a new project and we're actively expanding its capabilities. If you come across code that causes issues, do let us know so we can support it. Bug reports, pull requests, and feature suggestions are all welcome on [GitHub](https://github.com/remoteoss/dexter). We try to address issues quickly and would love to hear what you'd like to see next.
+
+## License
+
+Dexter is released under the [MIT License](LICENSE).
