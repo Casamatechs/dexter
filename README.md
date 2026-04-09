@@ -217,6 +217,81 @@ Configure the binary path in Zed's `settings.json`:
 }
 ```
 
+### Emacs
+
+The emacs instructions assume you're using **use-package**.
+
+#### Eglot
+
+##### Emacs version >= 30
+
+```emacs-lisp
+(use-package eglot
+  :ensure nil ;; eglot is included in emacs >= 29  
+  
+  :config
+  (setf (alist-get '(elixir-mode elixir-ts-mode heex-ts-mode)
+                   eglot-server-programs
+                   nil nil #'equal)
+        (eglot-alternatives '(("path/to/dexter" "lsp"))))
+
+  ;; other config
+  )
+```
+
+##### Emacs version <= 29
+
+```emacs-lisp
+(use-package eglot
+  :ensure nil ;; eglot is included in emacs >= 29, use :ensure t if using an older version
+  
+  :config
+  (setf (alist-get 'elixir-mode eglot-server-programs)
+        (eglot-alternatives '(("path/to/dexter" "lsp"))))
+
+  ;; other config
+  )
+```
+
+> [!note]
+> 
+> If you are using **elixir-ts-mode** instead of **elixir-mode** replace **(alist-get 'elixir-mode eglot-server-programs)** from the snippet above with **(alist-get '(elixir-mode elixir-ts-mode heex-ts-mode) eglot-server-programs)**
+
+##### Configuration
+
+To configure Dexter settings, use `eglot-workspace-configuration`:
+
+```emacs-lisp
+(setq-default eglot-workspace-configuration
+  '(:dexter (:workspaceSymbols (:minQueryLength 0))))
+```
+
+#### lsp-mode
+
+```emacs-lisp
+(use-package lsp-mode
+  :ensure nil
+  :hook ((elixir-mode elixir-ts-mode heex-ts-mode) . lsp-deferred)
+  :config
+  (add-to-list 'lsp-disabled-clients 'elixir-ls)
+
+  (lsp-register-client
+   (make-lsp-client
+    :new-connection (lsp-stdio-connection
+                     '("/path/to/dexter" "lsp"))
+    :activation-fn (lsp-activate-on "elixir")
+    :server-id 'dexter-elixir)))
+```
+
+##### Configuration
+
+To configure Dexter settings, use `lsp-register-custom-settings`:
+
+```emacs-lisp
+(lsp-register-custom-settings
+  '(("workspaceSymbols.minQueryLength" 0)))
+```
+
 ## CLI usage
 
 The CLI commands are available for scripting and manual use.
