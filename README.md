@@ -7,14 +7,16 @@ A fast, full-featured Elixir LSP optimized for large Elixir codebases.
 ## Table of contents
 
 - [Features](#features)
-- [Why build another LSP?](#why-build-another-lsp)
-- [Performance](#performance)
 - [Quick start](#quick-start)
+  - [Install via mise or asdf](#install-via-mise-or-asdf)
 - [Editor setup](#editor-setup)
   - [VS Code / Cursor](#vs-code--cursor)
+    - [Configuration](#configuration)
   - [Neovim (0.11+)](#neovim-011)
   - [Neovim (with nvim-lspconfig — \< 0.11)](#neovim-with-nvim-lspconfig---011)
   - [Zed](#zed)
+- [Why build another LSP?](#why-build-another-lsp)
+- [Performance](#performance)
 - [CLI usage](#cli-usage)
   - [Index a project](#index-a-project)
   - [Look up definitions](#look-up-definitions)
@@ -37,7 +39,7 @@ A fast, full-featured Elixir LSP optimized for large Elixir codebases.
 
 ## Features
 
-- **Fast indexing** — cold index completes in ~11s on a 57k-file Elixir monorepo, ~93ms on Oban, ~90ms on the Elixir standard library (measured on an M1 MacBook Pro). After your first index, incremental indexing makes sure that you never have to reindex the whole codebase again.
+- **Fast indexing** — cold index completes in ~11s on a 57k-file Elixir monorepo, ~100ms on Oban, ~300ms on the Elixir standard library (measured on an M1 MacBook Pro). After your first index, incremental indexing makes sure that you never have to reindex the whole codebase again.
 - **Go-to-definition** — jump to any module, function, type, or variable definition. Resolves aliases, imports, `defdelegate` chains, `use` injections, and the Elixir stdlib. Handles all definition forms: `def`, `defp`, `defmacro`, `defprotocol`, `defimpl`, `defstruct`, and more.
 - **Go-to-references** — find all usages of a function or module across the codebase, including through `import`, `use` chains, and `defdelegate`.
 - **Hover documentation** — `@doc`, `@moduledoc`, `@typedoc`, and `@spec` annotations rendered as Markdown when you hover over a symbol.
@@ -69,24 +71,6 @@ A fast, full-featured Elixir LSP optimized for large Elixir codebases.
 - **Module nesting** — correctly tracks `end` keywords to attribute functions to the right module.
 
 </details>
-
-## Why build another LSP?
-
-Remote has one of the largest Elixir codebases in existence (at least that we're aware of), now around 57k files. As our codebase has grown, we've had more and more struggles with language servers. We had found that they simply couldn't keep up with such a large codebase. On large codebases like ours, existing LSPs take hours to index, and even after indexing, operations like go-to-definition and go-to-references are still slow. On top of that, changing branches means a whole new round of indexing. The result has been frustration. Many of us on the engineering team had all but given up on the idea of ever having a working LSP.
-
-Dexter is designed with speed and efficiency as core guiding principles. It takes a different approach from other Elixir LSPs, parsing source files directly as text and storing everything in SQLite so lookups are fast. The speed difference is noticeable on codebases of all sizes. Although Dexter isn't fully aware of the compiled state of the code like compilation-based LSPs, some clever parsing and deferring complex macro following to runtime allow it to get very close. In fact, you probably wouldn't even notice this limitation if you weren't reading this.
-
-## Performance
-
-Measured on a 57k-file Elixir monorepo (330k definitions, 2.7M references) on a 32GB M1 MacBook Pro:
-
-| Operation | Time |
-|-----------|------|
-| Full init | ~11s |
-| Lookup (LSP or CLI) | ~10ms |
-| Single file reindex (on save) | ~10ms |
-| Full reindex (no changes) | ~2s |
-| Format on save | <1ms |
 
 ## Quick start
 
@@ -143,7 +127,11 @@ To enable format-on-save, update your VS Code settings:
 
 // or, for Elixir specifically
 {
-  "[elixir]": { "editor.formatOnSave": true },
+  "[elixir]": {
+      "editor.formatOnSave": true
+      // you may need to set Dexter as your default Elixir formatter, depending on your setup
+      "editor.defaultFormatter": "remoteoss.dexter-lsp"
+  },
   "[phoenix-heex]": { "editor.formatOnSave": true }
 }
 ```
@@ -291,6 +279,23 @@ To configure Dexter settings, use `lsp-register-custom-settings`:
 (lsp-register-custom-settings
   '(("workspaceSymbols.minQueryLength" 0)))
 ```
+## Why build another LSP?
+
+Remote has one of the largest Elixir codebases in existence (at least that we're aware of), now around 57k files. As our codebase has grown, we've had more and more struggles with language servers. We had found that they simply couldn't keep up with such a large codebase. On large codebases like ours, existing LSPs take hours to index, and even after indexing, operations like go-to-definition and go-to-references are still slow. On top of that, changing branches means a whole new round of indexing. The result has been frustration. Many of us on the engineering team had all but given up on the idea of ever having a working LSP.
+
+Dexter is designed with speed and efficiency as core guiding principles. It takes a different approach from other Elixir LSPs, parsing source files directly as text and storing everything in SQLite so lookups are fast. The speed difference is noticeable on codebases of all sizes. Although Dexter isn't fully aware of the compiled state of the code like compilation-based LSPs, some clever parsing and deferring complex macro following to runtime allow it to get very close. In fact, you probably wouldn't even notice this limitation if you weren't reading this.
+
+## Performance
+
+Measured on a 57k-file Elixir monorepo (330k definitions, 2.7M references) on a 32GB M1 MacBook Pro:
+
+| Operation | Time |
+|-----------|------|
+| Cold first-time index | ~11s |
+| Lookup (LSP or CLI) | ~10ms |
+| Single file reindex (on save) | ~10ms |
+| Full reindex (no changes) | ~2s |
+| Format on save | <1ms |
 
 ## CLI usage
 
